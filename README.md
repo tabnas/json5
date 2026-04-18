@@ -1,59 +1,58 @@
-# @jsonic/csv
+# @jsonic/json5
 
 A [Jsonic](https://jsonic.senecajs.org) syntax plugin that parses
-CSV text into objects or arrays, with support for headers, quoted
-fields, custom delimiters, streaming, and strict/non-strict modes.
-Available for TypeScript and Go.
-
-
-[![npm version](https://img.shields.io/npm/v/@jsonic/csv.svg)](https://npmjs.com/package/@jsonic/csv)
-[![build](https://github.com/jsonicjs/csv/actions/workflows/build.yml/badge.svg)](https://github.com/jsonicjs/csv/actions/workflows/build.yml)
-[![Coverage Status](https://coveralls.io/repos/github/jsonicjs/csv/badge.svg?branch=main)](https://coveralls.io/github/jsonicjs/csv?branch=main)
-[![Known Vulnerabilities](https://snyk.io/test/github/jsonicjs/csv/badge.svg)](https://snyk.io/test/github/jsonicjs/csv)
-[![DeepScan grade](https://deepscan.io/api/teams/5016/projects/22466/branches/663906/badge/grade.svg)](https://deepscan.io/dashboard#view=project&tid=5016&pid=22466&bid=663906)
-[![Maintainability](https://api.codeclimate.com/v1/badges/10e9bede600896c77ce8/maintainability)](https://codeclimate.com/github/jsonicjs/csv/maintainability)
-
-| ![Voxgig](https://www.voxgig.com/res/img/vgt01r.png) | This open source module is sponsored and supported by [Voxgig](https://www.voxgig.com). |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------------- |
+[JSON5](https://json5.org) text. Supports single- and double-quoted
+strings, unquoted and single-quoted object keys, trailing commas,
+single-line (`//`) and block (`/* */`) comments, hexadecimal integers,
+`Infinity` / `-Infinity` / `NaN`, leading- and trailing-decimal numbers,
+and explicit `+` sign on numbers.
 
 
 ## Quick example
 
-**TypeScript**
-
 ```typescript
 import { Jsonic } from 'jsonic'
-import { Csv } from '@jsonic/csv'
+import { Json5 } from '@jsonic/json5'
 
-const parse = Jsonic.make().use(Csv)
+const parse = Jsonic.make().use(Json5)
 
-parse("name,age\nAlice,30\nBob,25")
-// [{ name: 'Alice', age: '30' }, { name: 'Bob', age: '25' }]
-
-parse('a,b\n1,"hello, world"')
-// [{ a: '1', b: 'hello, world' }]
+parse(`{
+  // A JSON5 document
+  name: 'Alice',
+  age: 30,
+  balance: +1.5e3,
+  limit: Infinity,
+  tags: ['admin', 'user',],
+  "legacy-key": null,
+}`)
+// {
+//   name: 'Alice', age: 30, balance: 1500, limit: Infinity,
+//   tags: ['admin', 'user'], 'legacy-key': null,
+// }
 ```
 
-**Go**
-
-```go
-import csv "github.com/jsonicjs/csv/go"
-
-result, _ := csv.Parse("name,age\nAlice,30\nBob,25")
-// [{name:Alice age:30} {name:Bob age:25}]
-```
+Any valid JSON document is also a valid JSON5 document, so this plugin
+happily parses plain JSON as well.
 
 
-## Documentation
+## Options
 
-Full documentation following the [Diataxis](https://diataxis.fr)
-framework (tutorials, how-to guides, explanation, reference):
+All options default to a strict JSON5 configuration.
 
-- [TypeScript documentation](doc/csv-ts.md)
-- [Go documentation](doc/csv-go.md)
+| Option            | Default | Description                                                             |
+| ----------------- | ------- | ----------------------------------------------------------------------- |
+| `infinity`        | `true`  | Accept `Infinity`, `-Infinity`, `+Infinity`, `NaN`, `-NaN`, `+NaN`.     |
+| `hex`             | `true`  | Accept hexadecimal literals (`0x1F`).                                   |
+| `requireValue`    | `true`  | Reject an empty input string.                                           |
+| `strictValue`     | `true`  | Reject bare unquoted text at the top level (e.g. `foo`).                |
+| `hashComment`     | `false` | Accept `#` single-line comments (not part of the JSON5 spec).           |
+| `backtickString`  | `false` | Accept backtick-quoted strings (not part of the JSON5 spec).            |
+| `numberSeparator` | `false` | Accept `_` digit separators (`1_000`).                                  |
+| `octal`           | `false` | Accept octal literals (`0o17`).                                         |
+| `binary`          | `false` | Accept binary literals (`0b101`).                                       |
 
 
 ## License
 
-Copyright (c) 2021-2025 Richard Rodger and other contributors,
+Copyright (c) 2021-2026 Richard Rodger and other contributors,
 [MIT License](LICENSE).
