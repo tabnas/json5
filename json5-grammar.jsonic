@@ -1,0 +1,140 @@
+# JSON5 Grammar Definition
+# Parsed by a standard Jsonic instance and passed to jsonic.grammar()
+# Function references (@ prefixed) are resolved against the refs map
+# Regex references (@/pattern/flags) are resolved to RegExp instances
+# Bare identifiers (UPPER_SNAKE_CASE) are placeholders overridden by the
+# plugin code before the spec is applied.
+#
+# This file captures the strict-JSON5 baseline. The plugin layers
+# option-dependent overrides (hash comments, backtick strings, octal /
+# binary / separator numbers, Infinity / NaN keywords, etc.) on top.
+
+{
+  # Drop Jsonic's implicit top-level list / map alternates so `a:1` and
+  # `1,2` are not accepted at the document root. JSON5 requires a single
+  # value expression at top level.
+  options: rule: { exclude: 'imp' }
+
+  # Restrict the token sets used by Jsonic's grammar rules:
+  #   VAL drops #TX — reject bare unquoted text at value positions.
+  #   KEY drops #NR — reject numeric keys like `{10: 1}`.
+  options: tokenSet: {
+    VAL: [ '#ST' '#NR' '#VL' ]
+    KEY: [ '#TX' '#ST' '#VL' ]
+  }
+
+  # Whitespace and line-terminator sets are broadened to match the JSON5
+  # spec (Unicode Zs, BOM, LS / PS). The actual character strings are
+  # supplied by the plugin because they contain code points the grammar
+  # parser cannot round-trip losslessly.
+  options: space: { chars: JSON5_WHITESPACE }
+  options: line: {
+    chars: JSON5_LINE_TERMINATOR
+    rowChars: JSON5_ROW_CHARS
+  }
+
+  # LexCheck hooks close the last gaps the built-in lexer has against
+  # the JSON5 spec:
+  #   fixed.check  preprocesses backslash+CRLF inside strings.
+  #   text.check   rejects unquoted text that cannot start a valid
+  #                JSON5 IdentifierName AND is not a registered value
+  #                keyword or regex-matched number.
+  options: fixed: { check: '@fixed-check' }
+  options: text:  { check: '@text-check' }
+
+  # JSON5 numeric literals: allow hex, disallow octal / binary / digit
+  # separators. Reject JS-style leading-zero integers (`010`, `-098`).
+  options: number: {
+    lex: true
+    hex: true
+    oct: false
+    bin: false
+    sep: ''
+    exclude: '@/^[+-]?0[0-9]/'
+  }
+
+  # JSON5 comments are `//` and `/* */`. Hash comments are disabled here
+  # and only enabled by the plugin when the `hashComment` option is set.
+  options: comment: {
+    def: {
+      slash: { line: true start: '//' lex: true eatline: false }
+      multi: { line: false start: '/*' end: '*/' lex: true eatline: false }
+      hash:  { line: true start: '#' lex: false eatline: false }
+    }
+  }
+
+  # JSON5 strings: single or double quote, with ES5.1 escapes plus line
+  # continuations (backslash + line terminator produces an empty string).
+  options: string: {
+    lex: true
+    chars: JSON5_QUOTE_CHARS
+    multiChars: JSON5_MULTI_QUOTE_CHARS
+    escapeChar: '\\'
+    escape: {
+      b:  '\b'
+      f:  '\f'
+      n:  '\n'
+      r:  '\r'
+      t:  '\t'
+      v:  '\v'
+      '0': '\u0000'
+      '"': '"'
+      "'": "'"
+      '`': '`'
+      '\\': '\\'
+      '/': '/'
+      # JSON5 line continuation: backslash + LineTerminatorSequence.
+      '\n': ''
+      '\r': ''
+      '\u2028': ''
+      '\u2029': ''
+    }
+    allowUnknown: true
+  }
+
+  # Value keywords. The Infinity / NaN family is layered on by the
+  # plugin (because the numeric literals cannot be round-tripped through
+  # this grammar parser as actual JS numbers). The regex-matched
+  # defs pick up number shapes the built-in number lexer does not
+  # recognise — trailing-decimal-with-exponent (`5.e4`) and uppercase
+  # `0X` hex — so both TS and Go exhibit the same behaviour on those.
+  options: value: {
+    lex: true
+    def: {
+      true:  { val: true }
+      false: { val: false }
+      null:  { val: null }
+
+      trailingDecExp: {
+        match:   '@/^[+-]?[0-9]+\\.[eE][+-]?[0-9]+/'
+        val:     '@parse-trailing-dec-exp'
+        consume: true
+      }
+
+      uppercaseHex: {
+        match:   '@/^[+-]?0X[0-9a-fA-F]+/'
+        val:     '@parse-uppercase-hex'
+        consume: true
+      }
+    }
+  }
+
+  # JSON5 objects extend on duplicate keys (last wins); no bare-colon
+  # child syntax. Lists are strict — no named properties, pairs, or
+  # bare-colon children.
+  options: map:  { extend: true  child: false }
+  options: list: { property: false pair: false child: false }
+
+  # Reject an entirely empty source. A comments-only source is handled
+  # in code by dropping the `#ZZ jsonic` alternate from the val rule.
+  options: lex: { empty: false emptyResult: null }
+
+  options: error: {
+    json5_empty:    'JSON5 input must contain a value'
+    json5_no_value: 'JSON5 input must contain a value'
+  }
+  options: hint: {
+    json5_empty: 'JSON5 requires a top-level value. An empty source is not a valid JSON5 document.'
+    json5_no_value: 'JSON5 requires a top-level value. A source that consists only of whitespace and comments is not valid.'
+  }
+}
