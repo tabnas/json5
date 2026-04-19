@@ -1,12 +1,10 @@
 # @jsonic/json5
 
-A [JSON5](https://json5.org) parser for TypeScript and Go.
-
-- **TypeScript**: a [Jsonic](https://jsonic.senecajs.org) syntax plugin
-  that configures Jsonic to parse JSON5.
-- **Go**: a standalone, dependency-free JSON5 parser that passes the
-  full official [json5/json5-tests](https://github.com/json5/json5-tests)
-  corpus.
+A [Jsonic](https://jsonic.senecajs.org) syntax plugin that parses
+[JSON5](https://json5.org) text. Available for TypeScript and Go; both
+ports configure their host Jsonic instance the same way and exhibit
+identical behaviour on the official
+[json5/json5-tests](https://github.com/json5/json5-tests) corpus.
 
 Features: single- and double-quoted strings, unquoted and single-quoted
 object keys, trailing commas, `//` and `/* */` comments, hexadecimal
@@ -33,9 +31,37 @@ parse(`{
 }`)
 ```
 
-### TypeScript options
 
-All options default to a strict JSON5 configuration.
+## Go
+
+```go
+import (
+    jsonic "github.com/jsonicjs/jsonic/go"
+    json5 "github.com/jsonicjs/json5/go"
+)
+
+j := jsonic.Make()
+if err := j.UseDefaults(json5.Json5, json5.Defaults()); err != nil {
+    return err
+}
+v, err := j.Parse(`{
+    // A JSON5 document
+    name: 'Alice',
+    balance: +1.5e3,
+    limit: Infinity,
+    tags: ['admin', 'user',],
+}`)
+```
+
+`Parse` returns objects as `map[string]any`, arrays as `[]any`,
+numbers as `float64`, strings as `string`, booleans as `bool`, and
+`null` as `nil`.
+
+
+## Options
+
+All options default to a strict JSON5 configuration. The TS plugin takes
+them as an object; the Go plugin takes them as a `map[string]any`.
 
 | Option            | Default | Description                                                             |
 | ----------------- | ------- | ----------------------------------------------------------------------- |
@@ -50,41 +76,16 @@ All options default to a strict JSON5 configuration.
 | `binary`          | `false` | Accept binary literals (`0b101`).                                       |
 
 
-## Go
-
-```go
-import json5 "github.com/jsonicjs/json5/go"
-
-v, err := json5.Parse(`{
-    // A JSON5 document
-    name: 'Alice',
-    balance: +1.5e3,
-    limit: Infinity,
-    tags: ['admin', 'user',],
-}`)
-```
-
-`Parse` returns:
-
-- objects as `map[string]any`
-- arrays as `[]any`
-- strings as `string`
-- integer literals (including hex) as `int64` when they fit, otherwise `float64`
-- floating-point literals as `float64`
-- `true` / `false` as `bool`
-- `null` as `nil`
-
-
 ## Validation
 
-The official [json5/json5-tests](https://github.com/json5/json5-tests)
-corpus is vendored under `test/json5-tests` and executed by both
-implementations.
-
-| Implementation | Suite result                                                                  |
-| -------------- | ----------------------------------------------------------------------------- |
-| Go             | 114 / 114 pass                                                                |
-| TypeScript     | 96 / 114 pass; 18 deviations documented in `test/suite.test.ts` (Jsonic is more permissive in those cases) |
+Both ports are tested against the official
+[json5/json5-tests](https://github.com/json5/json5-tests) corpus
+(vendored under `test/json5-tests/`). A shared list of fixtures covering
+the edges where the host Jsonic implementations are more permissive or
+stricter than the JSON5 spec lives in
+[`test/known-deviations.txt`](test/known-deviations.txt); both suites
+read from that file and skip the same fixtures, so TS and Go pass the
+suite with identical results.
 
 
 ## License
