@@ -1,4 +1,4 @@
-.PHONY: all build test clean build-ts build-go test-ts test-go clean-ts clean-go reset
+.PHONY: all build test clean build-ts build-go test-ts test-go clean-ts clean-go embed reset
 
 all: build test
 
@@ -8,8 +8,12 @@ test: test-ts test-go
 
 clean: clean-ts clean-go
 
+# Sync json5-grammar.jsonic into src/json5.ts and go/json5.go.
+embed:
+	node embed-grammar.js
+
 # TypeScript
-build-ts:
+build-ts: embed
 	npm run build
 
 test-ts:
@@ -19,7 +23,7 @@ clean-ts:
 	rm -rf dist dist-test
 
 # Go
-build-go:
+build-go: embed
 	cd go && go build ./...
 
 test-go:

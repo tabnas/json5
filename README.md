@@ -79,8 +79,22 @@ them as an object; the Go plugin takes them as a `map[string]any`.
 
 ## Implementation strategy
 
-Both ports use their host Jsonic's plugin APIs only — no Jsonic
-internals are patched. Specifically:
+Both ports share a single declarative grammar file —
+[`json5-grammar.jsonic`](json5-grammar.jsonic) — that captures the
+strict-JSON5 baseline (token sets, whitespace / line-terminator chars,
+comment definitions, string escapes, number rules, value keywords,
+map / list / lex behaviour, error messages). The grammar is embedded
+into both `src/json5.ts` and `go/json5.go` via `embed-grammar.js` (run
+automatically during `npm run build`).
+
+The plugin then layers option-dependent overrides on top of the
+grammar — enable hash comments, backtick strings, octal / binary /
+separator numbers, Infinity / NaN keywords — and installs the
+plumbing that the Jsonic-format grammar cannot carry across (function
+references, live JS numbers, rule-filter surgery).
+
+Beyond the grammar, both ports use their host Jsonic's plugin APIs
+only — no Jsonic internals are patched. Specifically:
 
 - **Tokens and options**: comments, strings, numbers, value keywords,
   whitespace, and line-terminator sets are configured via the standard
