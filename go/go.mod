@@ -1,4 +1,4 @@
-module github.com/jsonicjs/csv/go
+module github.com/jsonicjs/json5/go
 
 go 1.24.7
 

@@ -1,59 +1,117 @@
-# @jsonic/csv
+# @jsonic/json5
 
 A [Jsonic](https://jsonic.senecajs.org) syntax plugin that parses
-CSV text into objects or arrays, with support for headers, quoted
-fields, custom delimiters, streaming, and strict/non-strict modes.
-Available for TypeScript and Go.
+[JSON5](https://json5.org) text. Available for TypeScript and Go; both
+ports configure their host Jsonic the same way and pass the full
+official [json5/json5-tests](https://github.com/json5/json5-tests)
+corpus — **114/114** on each side.
+
+Features: single- and double-quoted strings, unquoted and single-quoted
+object keys, trailing commas, `//` and `/* */` comments, hexadecimal
+integers, `Infinity` / `-Infinity` / `NaN`, leading- and trailing-decimal
+numbers, explicit `+` sign, and string line continuations (including
+across a CRLF).
 
 
-[![npm version](https://img.shields.io/npm/v/@jsonic/csv.svg)](https://npmjs.com/package/@jsonic/csv)
-[![build](https://github.com/jsonicjs/csv/actions/workflows/build.yml/badge.svg)](https://github.com/jsonicjs/csv/actions/workflows/build.yml)
-[![Coverage Status](https://coveralls.io/repos/github/jsonicjs/csv/badge.svg?branch=main)](https://coveralls.io/github/jsonicjs/csv?branch=main)
-[![Known Vulnerabilities](https://snyk.io/test/github/jsonicjs/csv/badge.svg)](https://snyk.io/test/github/jsonicjs/csv)
-[![DeepScan grade](https://deepscan.io/api/teams/5016/projects/22466/branches/663906/badge/grade.svg)](https://deepscan.io/dashboard#view=project&tid=5016&pid=22466&bid=663906)
-[![Maintainability](https://api.codeclimate.com/v1/badges/10e9bede600896c77ce8/maintainability)](https://codeclimate.com/github/jsonicjs/csv/maintainability)
-
-| ![Voxgig](https://www.voxgig.com/res/img/vgt01r.png) | This open source module is sponsored and supported by [Voxgig](https://www.voxgig.com). |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------------- |
-
-
-## Quick example
-
-**TypeScript**
+## TypeScript
 
 ```typescript
 import { Jsonic } from 'jsonic'
-import { Csv } from '@jsonic/csv'
+import { Json5 } from '@jsonic/json5'
 
-const parse = Jsonic.make().use(Csv)
+const parse = Jsonic.make().use(Json5)
 
-parse("name,age\nAlice,30\nBob,25")
-// [{ name: 'Alice', age: '30' }, { name: 'Bob', age: '25' }]
-
-parse('a,b\n1,"hello, world"')
-// [{ a: '1', b: 'hello, world' }]
+parse(`{
+  // A JSON5 document
+  name: 'Alice',
+  age: 30,
+  balance: +1.5e3,
+  limit: Infinity,
+  tags: ['admin', 'user',],
+  "legacy-key": null,
+}`)
 ```
 
-**Go**
+
+## Go
 
 ```go
-import csv "github.com/jsonicjs/csv/go"
+import (
+    jsonic "github.com/jsonicjs/jsonic/go"
+    json5 "github.com/jsonicjs/json5/go"
+)
 
-result, _ := csv.Parse("name,age\nAlice,30\nBob,25")
-// [{name:Alice age:30} {name:Bob age:25}]
+j := jsonic.Make()
+if err := j.UseDefaults(json5.Json5, json5.Defaults()); err != nil {
+    return err
+}
+v, err := j.Parse(`{
+    // A JSON5 document
+    name: 'Alice',
+    balance: +1.5e3,
+    limit: Infinity,
+    tags: ['admin', 'user',],
+}`)
 ```
 
+`Parse` returns objects as `map[string]any`, arrays as `[]any`,
+numbers as `float64`, strings as `string`, booleans as `bool`, and
+`null` as `nil`.
 
-## Documentation
 
-Full documentation following the [Diataxis](https://diataxis.fr)
-framework (tutorials, how-to guides, explanation, reference):
+## Options
 
-- [TypeScript documentation](doc/csv-ts.md)
-- [Go documentation](doc/csv-go.md)
+All options default to a strict JSON5 configuration. The TS plugin takes
+them as an object; the Go plugin takes them as a `map[string]any`.
+
+| Option            | Default | Description                                                             |
+| ----------------- | ------- | ----------------------------------------------------------------------- |
+| `infinity`        | `true`  | Accept `Infinity`, `-Infinity`, `+Infinity`, `NaN`, `-NaN`, `+NaN`.     |
+| `hex`             | `true`  | Accept hexadecimal literals (`0x1F`).                                   |
+| `requireValue`    | `true`  | Reject an empty input string (or comments-only input).                  |
+| `strictValue`     | `true`  | Reject bare unquoted text at the top level (e.g. `foo`).                |
+| `hashComment`     | `false` | Accept `#` single-line comments (not part of the JSON5 spec).           |
+| `backtickString`  | `false` | Accept backtick-quoted strings (not part of the JSON5 spec).            |
+| `numberSeparator` | `false` | Accept `_` digit separators (`1_000`).                                  |
+| `octal`           | `false` | Accept octal literals (`0o17`).                                         |
+| `binary`          | `false` | Accept binary literals (`0b101`).                                       |
+
+
+## Implementation strategy
+
+Both ports use their host Jsonic's plugin APIs only — no Jsonic
+internals are patched. Specifically:
+
+- **Tokens and options**: comments, strings, numbers, value keywords,
+  whitespace, and line-terminator sets are configured via the standard
+  options (`space.chars`, `line.chars`, `string.escape`, `number.hex`,
+  `comment.def`, `value.def`, …).
+- **Regex `value.def` entries** catch number shapes the built-in
+  number lexer misses — trailing-decimal-with-exponent (`5.e4`) and
+  uppercase `0X` hex.
+- **`number.exclude`** rejects JS-style leading-zero literals (`010`,
+  `-098`, …).
+- **`tokenSet`** overrides remove `#TX` from `VAL` (reject bare text
+  values) and `#NR` from `KEY` (reject numeric keys).
+- **Rule-level adjustments** drop the `#ZZ jsonic` empty-parse alt from
+  `val` when `requireValue` is set, drop the leading-comma alt from
+  `pair` (so `{,}` fails), and install an after-open validator on
+  `pair` that rejects #TX keys that are not valid ECMAScript 5.1
+  IdentifierNames (so `multi-word` and `foo!bar` fail).
+- **`text.check`** lets non-identifier value keywords like `-Infinity`
+  and regex-matched number shapes like `5.e4` and `0X1F` through while
+  rejecting everything else that wouldn't make a valid identifier start.
+- **`fixed.check`** preprocesses the source once at parse start,
+  rewriting `\<CR><LF>` to `\<LF>` inside the lexer so JSON5 string
+  line-continuations that span a CRLF work end-to-end.
 
 
 ## License
 
-Copyright (c) 2021-2025 Richard Rodger and other contributors,
+Copyright (c) 2021-2026 Richard Rodger and other contributors,
 [MIT License](LICENSE).
+
+The vendored JSON5 test corpus under `test/json5-tests` is redistributed
+under the MIT License from the upstream
+[json5/json5-tests](https://github.com/json5/json5-tests) project; see
+`test/json5-tests/LICENSE.md` for details.
