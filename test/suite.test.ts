@@ -25,42 +25,21 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 const suiteRoot = join(__dirname, '..', 'test', 'json5-tests')
-const deviationsPath = join(__dirname, '..', 'test', 'known-deviations.txt')
-
-// The same file is consumed by the Go suite, so both implementations skip
-// the same fixtures and exhibit identical pass/fail behaviour.
-function loadKnownDeviations(path: string): Set<string> {
-  const out = new Set<string>()
-  if (!existsSync(path)) return out
-  for (const raw of readFileSync(path, 'utf8').split(/\r?\n/)) {
-    const line = raw.trim()
-    if (!line || line.startsWith('#')) continue
-    out.add(line)
-  }
-  return out
-}
 
 describe('json5-tests suite', () => {
   if (!existsSync(suiteRoot)) {
-    test('skipped: suite not present', () => {
-      // No-op: the official corpus is optional.
-    })
+    test('skipped: suite not present', () => {})
     return
   }
 
   const j = Jsonic.make().use(Json5)
-  const deviations = loadKnownDeviations(deviationsPath)
   const files = walk(suiteRoot).filter((f) =>
     /\.(json|json5|js|txt)$/.test(f),
   )
 
   for (const file of files) {
     const name = relative(suiteRoot, file).split(sep).join('/')
-    test(name, (t) => {
-      if (deviations.has(name)) {
-        t.skip('shared known deviation')
-        return
-      }
+    test(name, () => {
       const src = readFileSync(file, 'utf8')
       const shouldParse = /\.(json|json5)$/.test(file)
       let parsed = false

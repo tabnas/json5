@@ -1,7 +1,6 @@
 package json5
 
 import (
-	"bufio"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,32 +8,6 @@ import (
 
 	jsonic "github.com/jsonicjs/jsonic/go"
 )
-
-// loadKnownDeviations reads ../test/known-deviations.txt, stripping
-// comments and blank lines. The same file is consumed by the
-// TypeScript suite, so both implementations skip the same fixtures and
-// thus exhibit identical pass/fail behaviour on the official corpus.
-func loadKnownDeviations(t *testing.T, path string) map[string]bool {
-	t.Helper()
-	f, err := os.Open(path)
-	if err != nil {
-		t.Fatalf("open %s: %v", path, err)
-	}
-	defer f.Close()
-	set := map[string]bool{}
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		set[line] = true
-	}
-	if err := sc.Err(); err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	return set
-}
 
 // TestOfficialSuite runs the vendored json5/json5-tests corpus. Fixture
 // extensions determine expectation:
@@ -51,8 +24,6 @@ func TestOfficialSuite(t *testing.T) {
 	if _, err := os.Stat(root); os.IsNotExist(err) {
 		t.Skipf("json5-tests corpus not found at %s", root)
 	}
-
-	deviations := loadKnownDeviations(t, filepath.Join("..", "test", "known-deviations.txt"))
 
 	j := jsonic.Make()
 	if err := j.UseDefaults(Json5, Defaults()); err != nil {
@@ -85,9 +56,6 @@ func TestOfficialSuite(t *testing.T) {
 		rel, _ := filepath.Rel(root, path)
 		name := strings.ReplaceAll(rel, string(os.PathSeparator), "/")
 		t.Run(name, func(t *testing.T) {
-			if deviations[name] {
-				t.Skip("shared known deviation")
-			}
 			data, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatal(err)
