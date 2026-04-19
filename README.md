@@ -1,14 +1,20 @@
 # @jsonic/json5
 
-A [Jsonic](https://jsonic.senecajs.org) syntax plugin that parses
-[JSON5](https://json5.org) text. Supports single- and double-quoted
-strings, unquoted and single-quoted object keys, trailing commas,
-single-line (`//`) and block (`/* */`) comments, hexadecimal integers,
-`Infinity` / `-Infinity` / `NaN`, leading- and trailing-decimal numbers,
-and explicit `+` sign on numbers.
+A [JSON5](https://json5.org) parser for TypeScript and Go.
+
+- **TypeScript**: a [Jsonic](https://jsonic.senecajs.org) syntax plugin
+  that configures Jsonic to parse JSON5.
+- **Go**: a standalone, dependency-free JSON5 parser that passes the
+  full official [json5/json5-tests](https://github.com/json5/json5-tests)
+  corpus.
+
+Features: single- and double-quoted strings, unquoted and single-quoted
+object keys, trailing commas, `//` and `/* */` comments, hexadecimal
+integers, `Infinity` / `-Infinity` / `NaN`, leading- and trailing-decimal
+numbers, explicit `+` sign, and string line continuations.
 
 
-## Quick example
+## TypeScript
 
 ```typescript
 import { Jsonic } from 'jsonic'
@@ -25,17 +31,9 @@ parse(`{
   tags: ['admin', 'user',],
   "legacy-key": null,
 }`)
-// {
-//   name: 'Alice', age: 30, balance: 1500, limit: Infinity,
-//   tags: ['admin', 'user'], 'legacy-key': null,
-// }
 ```
 
-Any valid JSON document is also a valid JSON5 document, so this plugin
-happily parses plain JSON as well.
-
-
-## Options
+### TypeScript options
 
 All options default to a strict JSON5 configuration.
 
@@ -52,7 +50,49 @@ All options default to a strict JSON5 configuration.
 | `binary`          | `false` | Accept binary literals (`0b101`).                                       |
 
 
+## Go
+
+```go
+import json5 "github.com/jsonicjs/json5/go"
+
+v, err := json5.Parse(`{
+    // A JSON5 document
+    name: 'Alice',
+    balance: +1.5e3,
+    limit: Infinity,
+    tags: ['admin', 'user',],
+}`)
+```
+
+`Parse` returns:
+
+- objects as `map[string]any`
+- arrays as `[]any`
+- strings as `string`
+- integer literals (including hex) as `int64` when they fit, otherwise `float64`
+- floating-point literals as `float64`
+- `true` / `false` as `bool`
+- `null` as `nil`
+
+
+## Validation
+
+The official [json5/json5-tests](https://github.com/json5/json5-tests)
+corpus is vendored under `test/json5-tests` and executed by both
+implementations.
+
+| Implementation | Suite result                                                                  |
+| -------------- | ----------------------------------------------------------------------------- |
+| Go             | 114 / 114 pass                                                                |
+| TypeScript     | 96 / 114 pass; 18 deviations documented in `test/suite.test.ts` (Jsonic is more permissive in those cases) |
+
+
 ## License
 
 Copyright (c) 2021-2026 Richard Rodger and other contributors,
 [MIT License](LICENSE).
+
+The vendored JSON5 test corpus under `test/json5-tests` is redistributed
+under the MIT License from the upstream
+[json5/json5-tests](https://github.com/json5/json5-tests) project; see
+`test/json5-tests/LICENSE.md` for details.
