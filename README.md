@@ -1,39 +1,39 @@
 # @jsonic/json5
 
-A [Jsonic](https://jsonic.senecajs.org) syntax plugin that parses
-[JSON5](https://json5.org) text. Available for TypeScript and Go; both
-ports configure their host Jsonic the same way and pass the full
-official [json5/json5-tests](https://github.com/json5/json5-tests)
-corpus — **114/114** on each side.
+A [Jsonic](https://github.com/jsonicjs/jsonic) syntax plugin that
+parses [JSON5](https://json5.org) text into objects, with support for
+single- and double-quoted strings, unquoted and single-quoted object
+keys, trailing commas, `//` and `/* */` comments, hexadecimal
+integers, `Infinity` / `NaN`, leading- and trailing-decimal numbers,
+explicit `+` signs, and string line continuations.
 
-Features: single- and double-quoted strings, unquoted and single-quoted
-object keys, trailing commas, `//` and `/* */` comments, hexadecimal
-integers, `Infinity` / `-Infinity` / `NaN`, leading- and trailing-decimal
-numbers, explicit `+` sign, and string line continuations (including
-across a CRLF).
+Both ports pass the full official
+[`json5/json5-tests`](https://github.com/json5/json5-tests) corpus
+(114 / 114) and behave identically on every fixture.
+
+Available for [TypeScript](doc/json5-ts.md) and [Go](doc/json5-go.md).
 
 
-## TypeScript
+## Quick example
+
+**TypeScript**
 
 ```typescript
 import { Jsonic } from 'jsonic'
 import { Json5 } from '@jsonic/json5'
 
-const parse = Jsonic.make().use(Json5)
+const j = Jsonic.make().use(Json5)
 
-parse(`{
+j(`{
   // A JSON5 document
   name: 'Alice',
-  age: 30,
   balance: +1.5e3,
   limit: Infinity,
   tags: ['admin', 'user',],
-  "legacy-key": null,
 }`)
 ```
 
-
-## Go
+**Go**
 
 ```go
 import (
@@ -42,11 +42,8 @@ import (
 )
 
 j := jsonic.Make()
-if err := j.UseDefaults(json5.Json5, json5.Defaults()); err != nil {
-    return err
-}
-v, err := j.Parse(`{
-    // A JSON5 document
+j.UseDefaults(json5.Json5, json5.Defaults())
+v, _ := j.Parse(`{
     name: 'Alice',
     balance: +1.5e3,
     limit: Infinity,
@@ -54,70 +51,51 @@ v, err := j.Parse(`{
 }`)
 ```
 
-`Parse` returns objects as `map[string]any`, arrays as `[]any`,
-numbers as `float64`, strings as `string`, booleans as `bool`, and
-`null` as `nil`.
+
+## Documentation
+
+Full documentation following the [Diataxis](https://diataxis.fr)
+framework (tutorials, how-to guides, explanation, reference):
+
+- [TypeScript documentation](doc/json5-ts.md)
+- [Go documentation](doc/json5-go.md)
 
 
-## Options
+## Tutorials
 
-All options default to a strict JSON5 configuration. The TS plugin takes
-them as an object; the Go plugin takes them as a `map[string]any`.
+Learn the plugin from scratch with worked examples.
 
-| Option            | Default | Description                                                             |
-| ----------------- | ------- | ----------------------------------------------------------------------- |
-| `infinity`        | `true`  | Accept `Infinity`, `-Infinity`, `+Infinity`, `NaN`, `-NaN`, `+NaN`.     |
-| `hex`             | `true`  | Accept hexadecimal literals (`0x1F`).                                   |
-| `requireValue`    | `true`  | Reject an empty input string (or comments-only input).                  |
-| `strictValue`     | `true`  | Reject bare unquoted text at the top level (e.g. `foo`).                |
-| `hashComment`     | `false` | Accept `#` single-line comments (not part of the JSON5 spec).           |
-| `backtickString`  | `false` | Accept backtick-quoted strings (not part of the JSON5 spec).            |
-| `numberSeparator` | `false` | Accept `_` digit separators (`1_000`).                                  |
-| `octal`           | `false` | Accept octal literals (`0o17`).                                         |
-| `binary`          | `false` | Accept binary literals (`0b101`).                                       |
+- [Parse a JSON5 document (TypeScript)](doc/json5-ts.md#parse-a-json5-document) | [(Go)](doc/json5-go.md#parse-a-json5-document)
+- [Parse JSON5 numbers (TypeScript)](doc/json5-ts.md#parse-json5-numbers) | [(Go)](doc/json5-go.md#parse-json5-numbers)
+- [Parse strings with line continuations (TypeScript)](doc/json5-ts.md#parse-strings-with-line-continuations) | [(Go)](doc/json5-go.md#parse-strings-with-line-continuations)
 
 
-## Implementation strategy
+## How-to guides
 
-Both ports share a single declarative grammar file —
-[`json5-grammar.jsonic`](json5-grammar.jsonic) — that captures the
-strict-JSON5 baseline (token sets, whitespace / line-terminator chars,
-comment definitions, string escapes, number rules, value keywords,
-map / list / lex behaviour, error messages). The grammar is embedded
-into both `src/json5.ts` and `go/json5.go` via `embed-grammar.js` (run
-automatically during `npm run build`).
+Solve specific tasks.
 
-The plugin then layers option-dependent overrides on top of the
-grammar — enable hash comments, backtick strings, octal / binary /
-separator numbers, Infinity / NaN keywords — and installs the
-plumbing that the Jsonic-format grammar cannot carry across (function
-references, live JS numbers, rule-filter surgery).
+- [Accept `#` comments (TypeScript)](doc/json5-ts.md#accept-jsonic-style--comments) | [(Go)](doc/json5-go.md#accept-jsonic-style--comments)
+- [Accept backtick strings (TypeScript)](doc/json5-ts.md#accept-backtick-quoted-strings) | [(Go)](doc/json5-go.md#accept-backtick-quoted-strings)
+- [Accept octal, binary, or `_`-separated numbers (TypeScript)](doc/json5-ts.md#accept-javascript-style-numeric-extensions) | [(Go)](doc/json5-go.md#accept-javascript-style-numeric-extensions)
+- [Accept bare top-level text (TypeScript)](doc/json5-ts.md#accept-bare-top-level-text) | [(Go)](doc/json5-go.md#accept-bare-top-level-text)
+- [Allow empty input (TypeScript)](doc/json5-ts.md#allow-empty-input) | [(Go)](doc/json5-go.md#allow-empty-input)
 
-Beyond the grammar, both ports use their host Jsonic's plugin APIs
-only — no Jsonic internals are patched. Specifically:
 
-- **Tokens and options**: comments, strings, numbers, value keywords,
-  whitespace, and line-terminator sets are configured via the standard
-  options (`space.chars`, `line.chars`, `string.escape`, `number.hex`,
-  `comment.def`, `value.def`, …).
-- **Regex `value.def` entries** catch number shapes the built-in
-  number lexer misses — trailing-decimal-with-exponent (`5.e4`) and
-  uppercase `0X` hex.
-- **`number.exclude`** rejects JS-style leading-zero literals (`010`,
-  `-098`, …).
-- **`tokenSet`** overrides remove `#TX` from `VAL` (reject bare text
-  values) and `#NR` from `KEY` (reject numeric keys).
-- **Rule-level adjustments** drop the `#ZZ jsonic` empty-parse alt from
-  `val` when `requireValue` is set, drop the leading-comma alt from
-  `pair` (so `{,}` fails), and install an after-open validator on
-  `pair` that rejects #TX keys that are not valid ECMAScript 5.1
-  IdentifierNames (so `multi-word` and `foo!bar` fail).
-- **`text.check`** lets non-identifier value keywords like `-Infinity`
-  and regex-matched number shapes like `5.e4` and `0X1F` through while
-  rejecting everything else that wouldn't make a valid identifier start.
-- **`fixed.check`** preprocesses the source once at parse start,
-  rewriting `\<CR><LF>` to `\<LF>` inside the lexer so JSON5 string
-  line-continuations that span a CRLF work end-to-end.
+## Explanation
+
+Understand how the plugin works.
+
+- [Why this plugin exists (TypeScript)](doc/json5-ts.md#why-this-plugin-exists) | [(Go)](doc/json5-go.md#why-this-plugin-exists)
+- [The shared grammar file (TypeScript)](doc/json5-ts.md#the-shared-grammar-file) | [(Go)](doc/json5-go.md#the-shared-grammar-file)
+- [Compliance (TypeScript)](doc/json5-ts.md#compliance) | [(Go)](doc/json5-go.md#compliance)
+
+
+## Reference
+
+Detailed API and option tables.
+
+- [`Json5` plugin / `Json5Options` / errors (TypeScript)](doc/json5-ts.md#reference)
+- [`json5.Json5` / `json5.Defaults` / errors (Go)](doc/json5-go.md#reference)
 
 
 ## License
@@ -125,7 +103,7 @@ only — no Jsonic internals are patched. Specifically:
 Copyright (c) 2021-2026 Richard Rodger and other contributors,
 [MIT License](LICENSE).
 
-The vendored JSON5 test corpus under `test/json5-tests` is redistributed
-under the MIT License from the upstream
-[json5/json5-tests](https://github.com/json5/json5-tests) project; see
-`test/json5-tests/LICENSE.md` for details.
+The vendored JSON5 test corpus under `test/json5-tests` is
+redistributed under the MIT License from the upstream
+[json5/json5-tests](https://github.com/json5/json5-tests) project;
+see `test/json5-tests/LICENSE.md` for details.

@@ -502,7 +502,7 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 	//     whose source text is not a valid JSON5 IdentifierName.
 	//   - val.Open loses its `#ZZ jsonic` alt (when requireValue is
 	//     set) so a source containing only comments errors out.
-	j.Rule("pair", func(rs *jsonic.RuleSpec) {
+	j.Rule("pair", func(rs *jsonic.RuleSpec, _ *jsonic.Parser) {
 		rs.Open = dropAltsByTag(rs.Open, "comma,jsonic")
 		rs.AO = append(rs.AO, func(r *jsonic.Rule, ctx *jsonic.Context) {
 			if r.O0 == nil || r.O0.Tin != jsonic.TinTX {
@@ -515,7 +515,7 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 	})
 
 	if requireValue {
-		j.Rule("val", func(rs *jsonic.RuleSpec) {
+		j.Rule("val", func(rs *jsonic.RuleSpec, _ *jsonic.Parser) {
 			rs.Open = dropRootZZAlt(rs.Open)
 		})
 	}
