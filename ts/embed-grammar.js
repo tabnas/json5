@@ -47,7 +47,7 @@ function goEscape(src) {
   return parts.map((p) => '`' + p + '`').join(' + "`" + ')
 }
 embed(
-  path.join(__dirname, 'go', 'json5.go'),
+  path.join(__dirname, '..', 'go', 'json5.go'),
   'const grammarText = ' + goEscape(grammar),
 )
 

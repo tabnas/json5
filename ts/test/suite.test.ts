@@ -24,7 +24,7 @@ function walk(dir: string, out: string[] = []): string[] {
   return out
 }
 
-const suiteRoot = join(__dirname, '..', 'test', 'json5-tests')
+const suiteRoot = join(__dirname, '..', '..', 'test', 'json5-tests')
 
 describe('json5-tests suite', () => {
   if (!existsSync(suiteRoot)) {
