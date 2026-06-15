@@ -1,6 +1,6 @@
-# @jsonic/json5
+# @tabnas/json5
 
-A [Jsonic](https://github.com/jsonicjs/jsonic) syntax plugin that
+A [Jsonic](https://github.com/tabnas/jsonic) syntax plugin that
 parses [JSON5](https://json5.org) text into objects, with support for
 single- and double-quoted strings, unquoted and single-quoted object
 keys, trailing commas, `//` and `/* */` comments, hexadecimal
@@ -19,8 +19,8 @@ Available for [TypeScript](doc/json5-ts.md) and [Go](doc/json5-go.md).
 **TypeScript**
 
 ```typescript
-import { Jsonic } from 'jsonic'
-import { Json5 } from '@jsonic/json5'
+import { Jsonic } from '@tabnas/jsonic'
+import { Json5 } from '@tabnas/json5'
 
 const j = Jsonic.make().use(Json5)
 
@@ -37,8 +37,8 @@ j(`{
 
 ```go
 import (
-    jsonic "github.com/jsonicjs/jsonic/go"
-    json5 "github.com/jsonicjs/json5/go"
+    jsonic "github.com/tabnas/jsonic/go"
+    json5 "github.com/tabnas/json5/go"
 )
 
 j := jsonic.Make()

@@ -8,7 +8,7 @@ and trailing-decimal numbers, explicit `+` signs, and string line
 continuations.
 
 ```bash
-npm install @jsonic/json5
+npm install @tabnas/json5
 ```
 
 Requires `jsonic` >= 2 as a peer dependency.
@@ -22,8 +22,8 @@ Install the plugin on a Jsonic instance, then call it like any
 Jsonic parser — the return value is the decoded JavaScript value.
 
 ```typescript
-import { Jsonic } from 'jsonic'
-import { Json5 } from '@jsonic/json5'
+import { Jsonic } from '@tabnas/jsonic'
+import { Json5 } from '@tabnas/json5'
 
 const j = Jsonic.make().use(Json5)
 
@@ -183,7 +183,7 @@ Both ports pass the full official
 ### `Json5` (Plugin)
 
 ```typescript
-import { Json5 } from '@jsonic/json5'
+import { Json5 } from '@tabnas/json5'
 
 Jsonic.make().use(Json5, options?)
 ```

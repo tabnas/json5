@@ -1,22 +1,22 @@
 {
-  "name": "@jsonic/json5",
+  "name": "@tabnas/json5",
   "version": "0.1.0",
-  "description": "This plugin configures the [Jsonic](https://jsonic.senecajs.org) JSON parser to parse JSON5 syntax.",
+  "description": "This plugin configures the [Tabnas](https://github.com/tabnas/json5) JSON parser to parse JSON5 syntax.",
   "main": "dist/json5.js",
   "type": "commonjs",
   "browser": "json5.min.js",
   "types": "dist/json5.d.ts",
-  "homepage": "https://github.com/jsonicjs/json5",
+  "homepage": "https://github.com/tabnas/json5",
   "keywords": [
     "json5",
     "json",
     "parser",
-    "jsonic"
+    "tabnas"
   ],
   "author": "Richard Rodger (http://richardrodger.com)",
   "repository": {
     "type": "git",
-    "url": "git://github.com/jsonicjs/json5.git"
+    "url": "git://github.com/tabnas/json5.git"
   },
   "scripts": {
     "test": "node --enable-source-maps --test \"dist-test/*.test.js\"",
@@ -38,10 +38,11 @@
     "LICENSE"
   ],
   "devDependencies": {
+    "@tabnas/jsonic": "file:../../jsonic/ts",
     "@types/node": "^25.6.0",
     "typescript": "^5.9.3"
   },
   "peerDependencies": {
-    "jsonic": ">=2"
+    "@tabnas/jsonic": ">=2"
   }
 }

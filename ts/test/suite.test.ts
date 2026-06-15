@@ -5,7 +5,7 @@ import assert from 'node:assert'
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 
-import { Jsonic } from 'jsonic'
+import { Jsonic } from '@tabnas/jsonic'
 import { Json5 } from '../dist/json5'
 
 // Walks the vendored json5/json5-tests corpus and asserts that every fixture

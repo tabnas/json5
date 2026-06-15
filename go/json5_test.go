@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	jsonic "github.com/jsonicjs/jsonic/go"
+	jsonic "github.com/tabnas/jsonic/go"
 )
 
 // parser returns a fresh Jsonic instance with the Json5 plugin installed

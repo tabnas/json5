@@ -5,13 +5,13 @@
 // Infinity / NaN, leading- and trailing-decimal numbers, explicit `+`
 // signs, and string line continuations.
 //
-// This is a Go port of the @jsonic/json5 TypeScript plugin. Both ports
+// This is a Go port of the @tabnas/json5 TypeScript plugin. Both ports
 // share json5-grammar.jsonic (a declarative Jsonic-format spec) and
 // pass the full official json5/json5-tests corpus.
 //
 //	import (
-//	    jsonic "github.com/jsonicjs/jsonic/go"
-//	    json5 "github.com/jsonicjs/json5/go"
+//	    jsonic "github.com/tabnas/jsonic/go"
+//	    json5 "github.com/tabnas/json5/go"
 //	)
 //
 //	j := jsonic.Make()
@@ -28,7 +28,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	jsonic "github.com/jsonicjs/jsonic/go"
+	jsonic "github.com/tabnas/jsonic/go"
 )
 
 // Version is the semantic version of this plugin.
@@ -489,11 +489,11 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 	nrTin := jsonic.TinNR
 	for _, rs := range j.RSM() {
 		if strictValue {
-			filterTinFromAlts(rs.Open, txTin, "val")
-			filterTinFromAlts(rs.Close, txTin, "val")
+			filterTinFromAlts(rs.OpenAlts(), txTin, "val")
+			filterTinFromAlts(rs.CloseAlts(), txTin, "val")
 		}
-		filterTinFromAlts(rs.Open, nrTin, "pair")
-		filterTinFromAlts(rs.Close, nrTin, "pair")
+		filterTinFromAlts(rs.OpenAlts(), nrTin, "pair")
+		filterTinFromAlts(rs.CloseAlts(), nrTin, "pair")
 	}
 
 	// Rule-level trims the grammar file cannot express declaratively:
@@ -503,8 +503,10 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 	//   - val.Open loses its `#ZZ jsonic` alt (when requireValue is
 	//     set) so a source containing only comments errors out.
 	j.Rule("pair", func(rs *jsonic.RuleSpec, _ *jsonic.Parser) {
-		rs.Open = dropAltsByTag(rs.Open, "comma,jsonic")
-		rs.AO = append(rs.AO, func(r *jsonic.Rule, ctx *jsonic.Context) {
+		filtered := dropAltsByTag(rs.OpenAlts(), "comma,jsonic")
+		rs.ClearOpen()
+		rs.AddOpen(filtered...)
+		rs.AddAO(func(r *jsonic.Rule, ctx *jsonic.Context) {
 			if r.O0 == nil || r.O0.Tin != jsonic.TinTX {
 				return
 			}
@@ -516,7 +518,9 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 
 	if requireValue {
 		j.Rule("val", func(rs *jsonic.RuleSpec, _ *jsonic.Parser) {
-			rs.Open = dropRootZZAlt(rs.Open)
+			filtered := dropRootZZAlt(rs.OpenAlts())
+			rs.ClearOpen()
+			rs.AddOpen(filtered...)
 		})
 	}
 

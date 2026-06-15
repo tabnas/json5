@@ -1,6 +1,6 @@
-# @jsonic/json5
+# @tabnas/json5
 
-This plugin configures the [Jsonic](https://jsonic.senecajs.org) JSON parser to parse JSON5 syntax.
+This plugin configures the [Tabnas](https://github.com/tabnas/parser) JSON parser to parse JSON5 syntax.
 
 This repository contains:
 

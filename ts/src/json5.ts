@@ -1,7 +1,9 @@
 /* Copyright (c) 2021-2026 Richard Rodger and other contributors, MIT License */
 
-// Import Jsonic types used by plugins.
-import { Jsonic, Plugin, Rule, Context, Lex } from 'jsonic'
+// Import the Jsonic (relaxed-JSON) API used by this plugin. The plugin
+// parses its embedded relaxed-JSON grammar via Jsonic.make(), so it
+// depends on the @tabnas/jsonic shim rather than the bare tabnas engine.
+import { Jsonic, Plugin, Rule, Context, Lex } from '@tabnas/jsonic'
 
 type Json5Options = {
   infinity: boolean

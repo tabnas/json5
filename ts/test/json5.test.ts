@@ -3,7 +3,7 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert'
 
-import { Jsonic } from 'jsonic'
+import { Jsonic } from '@tabnas/jsonic'
 import { Json5 } from '../dist/json5'
 
 // Deep-equal that treats two NaN values as equal.

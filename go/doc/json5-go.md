@@ -8,10 +8,10 @@ and trailing-decimal numbers, explicit `+` signs, and string line
 continuations.
 
 ```bash
-go get github.com/jsonicjs/json5/go
+go get github.com/tabnas/json5/go
 ```
 
-Requires `github.com/jsonicjs/jsonic/go` v0.1.19 or later.
+Requires `github.com/tabnas/jsonic/go` v0.1.19 or later.
 
 
 ## Tutorials
@@ -25,8 +25,8 @@ strings → `string`, booleans → `bool`, `null` → `nil`).
 
 ```go
 import (
-    jsonic "github.com/jsonicjs/jsonic/go"
-    json5 "github.com/jsonicjs/json5/go"
+    jsonic "github.com/tabnas/jsonic/go"
+    json5 "github.com/tabnas/json5/go"
 )
 
 j := jsonic.Make()
@@ -229,7 +229,7 @@ The semantic version of this package.
 ### Errors
 
 `j.Parse` returns a `*jsonic.JsonicError` (from
-`github.com/jsonicjs/jsonic/go`) whose `Code` field carries one of:
+`github.com/tabnas/jsonic/go`) whose `Code` field carries one of:
 
 | Code                    | Raised when                                                |
 | ----------------------- | ---------------------------------------------------------- |

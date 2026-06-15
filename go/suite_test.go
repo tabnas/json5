@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	jsonic "github.com/jsonicjs/jsonic/go"
+	jsonic "github.com/tabnas/jsonic/go"
 )
 
 // TestOfficialSuite runs the vendored json5/json5-tests corpus. Fixture
