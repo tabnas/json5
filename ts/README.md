@@ -18,19 +18,21 @@ Available for [TypeScript](doc/json5-ts.md) and [Go](doc/json5-go.md).
 
 **TypeScript**
 
-```typescript
+```js
 import { Jsonic } from '@tabnas/jsonic'
 import { Json5 } from '@tabnas/json5'
 
 const j = Jsonic.make().use(Json5)
 
-j(`{
+const doc = j(`{
   // A JSON5 document
   name: 'Alice',
   balance: +1.5e3,
   limit: Infinity,
   tags: ['admin', 'user',],
 }`)
+
+doc // => { name: 'Alice', balance: 1500, limit: Infinity, tags: ['admin', 'user'] }
 ```
 
 **Go**
