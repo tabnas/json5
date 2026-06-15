@@ -21,20 +21,21 @@ Requires `jsonic` >= 2 as a peer dependency.
 Install the plugin on a Jsonic instance, then call it like any
 Jsonic parser — the return value is the decoded JavaScript value.
 
-```typescript
+```js
 import { Jsonic } from '@tabnas/jsonic'
 import { Json5 } from '@tabnas/json5'
 
 const j = Jsonic.make().use(Json5)
 
-j(`{
+const doc = j(`{
   // A JSON5 document
   name: 'Alice',
   age: 30,
   tags: ['admin', 'user',],
   "legacy-key": null,
 }`)
-// { name: 'Alice', age: 30, tags: ['admin', 'user'], 'legacy-key': null }
+
+doc // => { name: 'Alice', age: 30, tags: ['admin', 'user'], 'legacy-key': null }
 ```
 
 ### Parse JSON5 numbers
@@ -43,28 +44,34 @@ Everything the spec admits round-trips to `number`, including
 `Infinity`, `NaN`, hexadecimal literals, leading- and
 trailing-decimal-point forms, and explicit `+` signs.
 
-```typescript
+```js
+const { Jsonic } = require('@tabnas/jsonic')
+const { Json5 } = require('@tabnas/json5')
+
 const j = Jsonic.make().use(Json5)
 
-j('0x1F')        // 31
-j('.5')          // 0.5
-j('5.')          // 5
-j('+1e10')       // 10000000000
-j('-Infinity')   // -Infinity
-j('NaN')         // NaN
+j('0x1F')        // => 31
+j('.5')          // => 0.5
+j('5.')          // => 5
+j('+1e10')       // => 10000000000
+j('-Infinity')   // => -Infinity
+j('NaN')         // => NaN
 ```
 
 ### Parse strings with line continuations
 
 A backslash immediately before a line terminator (`LF`, `CR`, `CRLF`,
-`LS`, or `PS`) is stripped from the string — the string continues on
-the next line.
+`LS`, or `PS`) is stripped from the string, leaving the line
+terminator in place — so the string continues on the next line.
 
-```typescript
+```js
+const { Jsonic } = require('@tabnas/jsonic')
+const { Json5 } = require('@tabnas/json5')
+
 const j = Jsonic.make().use(Json5)
 
 j("'line1 \\\nline2'")
-// 'line1 line2'
+// => 'line1 \nline2'
 ```
 
 
@@ -75,10 +82,13 @@ j("'line1 \\\nline2'")
 Standard JSON5 forbids `#` comments. Enable them for compatibility
 with ad-hoc config files:
 
-```typescript
+```js
+const { Jsonic } = require('@tabnas/jsonic')
+const { Json5 } = require('@tabnas/json5')
+
 const j = Jsonic.make().use(Json5, { hashComment: true })
 
-j('# comment\n42')   // 42
+j('# comment\n42')   // => 42
 ```
 
 ### Accept backtick-quoted strings
@@ -86,10 +96,13 @@ j('# comment\n42')   // 42
 Not part of the JSON5 spec, but occasionally useful when consuming
 template-literal-like source:
 
-```typescript
+```js
+const { Jsonic } = require('@tabnas/jsonic')
+const { Json5 } = require('@tabnas/json5')
+
 const j = Jsonic.make().use(Json5, { backtickString: true })
 
-j('`hello`')   // 'hello'
+j('`hello`')   // => 'hello'
 ```
 
 ### Accept JavaScript-style numeric extensions
@@ -98,16 +111,19 @@ Octal literals (`0o17`), binary literals (`0b101`), and `_` digit
 separators (`1_000`) are rejected by default. Enable them
 individually:
 
-```typescript
+```js
+const { Jsonic } = require('@tabnas/jsonic')
+const { Json5 } = require('@tabnas/json5')
+
 const j = Jsonic.make().use(Json5, {
   octal: true,
   binary: true,
   numberSeparator: true,
 })
 
-j('0o17')    // 15
-j('0b101')   // 5
-j('1_000')   // 1000
+j('0o17')    // => 15
+j('0b101')   // => 5
+j('1_000')   // => 1000
 ```
 
 ### Accept bare top-level text
@@ -116,22 +132,29 @@ With `strictValue: true` (the default), unquoted text at a value
 position is rejected (JSON5 requires a typed value). Disable for
 loose input:
 
-```typescript
+```js
+const { Jsonic } = require('@tabnas/jsonic')
+const { Json5 } = require('@tabnas/json5')
+
 const j = Jsonic.make().use(Json5, { strictValue: false })
 
-j('foo')   // 'foo'
+j('foo')   // => 'foo'
 ```
 
 ### Allow empty input
 
 By default, an empty or comments-only source raises an error.
-Return `undefined` instead:
+Return a no-value result instead — an empty source yields `null`,
+a comments-only source yields `undefined`:
 
-```typescript
+```js
+const { Jsonic } = require('@tabnas/jsonic')
+const { Json5 } = require('@tabnas/json5')
+
 const j = Jsonic.make().use(Json5, { requireValue: false })
 
-j('')           // undefined
-j('// only\n')  // undefined
+j('')           // => null
+j('// only\n')  // => undefined
 ```
 
 
