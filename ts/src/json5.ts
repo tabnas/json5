@@ -199,18 +199,21 @@ const grammarText = `
 
 // Plugin implementation.
 const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
-  // fixedCheck runs before every lexer step but gates its own work so
-  // the preprocessing happens exactly once per parse. It rewrites
-  // backslash+CRLF to backslash+LF so the escape-map entry for "\r"
-  // handles JSON5 string line continuations that span a CRLF.
+  // fixedCheck runs before every lexer step but gates its own work so the
+  // preprocessing happens exactly once per parse. It removes JSON5 string
+  // line continuations — a backslash immediately followed by a
+  // LineTerminatorSequence (CRLF, CR, LF, LS, PS) produces nothing, letting a
+  // string span lines. This can't be done with the escape map: the lexer
+  // drops any escape entry whose replacement is the empty string, so the
+  // continuation is stripped here at the source level instead.
   const fixedCheck = (lex: Lex) => {
     const ctx: any = (lex as any).ctx
     if (!ctx || !ctx.u) return
     if (ctx.u.json5_preprocessed) return
     ctx.u.json5_preprocessed = true
     const src = String((lex as any).src)
-    if (src.indexOf('\\\r\n') !== -1) {
-      const rewritten = src.replace(/\\\r\n/g, '\\\n')
+    const rewritten = src.replace(new RegExp('\\\\(?:\\r\\n|[\\r\\n\\u2028\\u2029])', 'g'), '')
+    if (rewritten !== src) {
       ;(lex as any).src = rewritten
       const pnt: any = (lex as any).pnt
       if (pnt) pnt.len = rewritten.length
