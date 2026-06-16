@@ -101,6 +101,16 @@ Detailed API and option tables.
 - [`json5.Json5` / `json5.Defaults` / errors (Go)](doc/json5-go.md#reference)
 
 
+
+## Grammar diagram
+
+The installed grammar as a railroad/syntax diagram, generated from the live
+grammar with [`@tabnas/railroad`](https://github.com/tabnas/railroad):
+
+![json5 grammar railroad diagram](doc/grammar.svg)
+
+A vertical ASCII version is in [`doc/grammar.txt`](doc/grammar.txt).
+
 ## License
 
 Copyright (c) 2021-2026 Richard Rodger and other contributors,
