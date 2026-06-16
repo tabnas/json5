@@ -48,6 +48,17 @@ const json5LineTerminator = "\r\n\u2028\u2029"
 // counter): LF, LS, PS. CR is folded into the following LF for CRLF.
 const json5RowChars = "\n\u2028\u2029"
 
+// JSON5 string line continuations: a backslash immediately followed by a
+// LineTerminatorSequence (CRLF, CR, LF, LS, PS) is removed entirely. CRLF is
+// listed first so the two-character sequence is matched before lone CR / LF.
+var json5LineContinuations = strings.NewReplacer(
+	"\\\r\n", "",
+	"\\\r", "",
+	"\\\n", "",
+	"\\\u2028", "",
+	"\\\u2029", "",
+)
+
 // --- BEGIN EMBEDDED json5-grammar.jsonic ---
 const grammarText = `# JSON5 Grammar Definition
 # Parsed by a standard Jsonic instance and passed to jsonic.grammar()
@@ -287,10 +298,12 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 	requireValue := optBool(opts, "requireValue", true)
 	strictValue := optBool(opts, "strictValue", true)
 
-	// fixedCheck runs before every lexer step but gates its own work so
-	// the preprocessing happens exactly once per parse. It rewrites
-	// backslash+CRLF to backslash+LF so the escape-map entry for "\r"
-	// handles JSON5 string line continuations that span a CRLF.
+	// fixedCheck runs before every lexer step but gates its own work so the
+	// preprocessing happens exactly once per parse. It removes JSON5 string
+	// line continuations — a backslash followed by a LineTerminatorSequence
+	// (CRLF, CR, LF, LS, PS) produces nothing, letting a string span lines.
+	// The escape map cannot express this: the lexer drops any escape whose
+	// replacement is the empty string, so the continuation is stripped here.
 	fixedCheck := func(lex *jsonic.Lex) *jsonic.LexCheckResult {
 		if lex.Ctx == nil || lex.Ctx.U == nil {
 			return nil
@@ -299,8 +312,8 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 			return nil
 		}
 		lex.Ctx.U["json5_preprocessed"] = true
-		if strings.Contains(lex.Src, "\\\r\n") {
-			lex.Src = strings.ReplaceAll(lex.Src, "\\\r\n", "\\\n")
+		if rewritten := json5LineContinuations.Replace(lex.Src); rewritten != lex.Src {
+			lex.Src = rewritten
 			if p := lex.Cursor(); p != nil {
 				p.Len = len(lex.Src)
 			}
