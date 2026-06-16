@@ -19,12 +19,13 @@ Available for [TypeScript](doc/json5-ts.md) and [Go](doc/json5-go.md).
 **TypeScript**
 
 ```js
-import { Jsonic } from '@tabnas/jsonic'
+import { Tabnas } from '@tabnas/parser'
+import { jsonic } from '@tabnas/jsonic'
 import { Json5 } from '@tabnas/json5'
 
-const j = Jsonic.make().use(Json5)
+const j = new Tabnas().use(jsonic).use(Json5)
 
-const doc = j(`{
+const doc = j.parse(`{
   // A JSON5 document
   name: 'Alice',
   balance: +1.5e3,
@@ -99,6 +100,16 @@ Detailed API and option tables.
 - [`Json5` plugin / `Json5Options` / errors (TypeScript)](doc/json5-ts.md#reference)
 - [`json5.Json5` / `json5.Defaults` / errors (Go)](doc/json5-go.md#reference)
 
+
+
+## Grammar diagram
+
+The installed grammar as a railroad/syntax diagram, generated from the live
+grammar with [`@tabnas/railroad`](https://github.com/tabnas/railroad):
+
+![json5 grammar railroad diagram](doc/grammar.svg)
+
+A vertical ASCII version is in [`doc/grammar.txt`](doc/grammar.txt).
 
 ## License
 

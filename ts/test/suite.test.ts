@@ -5,7 +5,8 @@ import assert from 'node:assert'
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 
-import { Jsonic } from '@tabnas/jsonic'
+import { Tabnas } from '@tabnas/parser'
+import { jsonic } from '@tabnas/jsonic'
 import { Json5 } from '../dist/json5'
 
 // Walks the vendored json5/json5-tests corpus and asserts that every fixture
@@ -32,7 +33,7 @@ describe('json5-tests suite', () => {
     return
   }
 
-  const j = Jsonic.make().use(Json5)
+  const j = new Tabnas().use(jsonic).use(Json5)
   const files = walk(suiteRoot).filter((f) =>
     /\.(json|json5|js|txt)$/.test(f),
   )
@@ -44,7 +45,7 @@ describe('json5-tests suite', () => {
       const shouldParse = /\.(json|json5)$/.test(file)
       let parsed = false
       try {
-        j(src)
+        j.parse(src)
         parsed = true
       } catch {
         parsed = false

@@ -39,10 +39,12 @@
   ],
   "devDependencies": {
     "@tabnas/jsonic": "file:../../jsonic/ts",
+    "@tabnas/parser": "file:../../parser/ts",
     "@types/node": "^25.6.0",
     "typescript": "^5.9.3"
   },
   "peerDependencies": {
-    "@tabnas/jsonic": ">=2"
+    "@tabnas/jsonic": ">=2",
+    "@tabnas/parser": ">=2"
   }
 }
