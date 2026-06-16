@@ -19,12 +19,13 @@ Available for [TypeScript](doc/json5-ts.md) and [Go](doc/json5-go.md).
 **TypeScript**
 
 ```js
-import { Jsonic } from '@tabnas/jsonic'
+import { Tabnas } from '@tabnas/parser'
+import { jsonic } from '@tabnas/jsonic'
 import { Json5 } from '@tabnas/json5'
 
-const j = Jsonic.make().use(Json5)
+const j = new Tabnas().use(jsonic).use(Json5)
 
-const doc = j(`{
+const doc = j.parse(`{
   // A JSON5 document
   name: 'Alice',
   balance: +1.5e3,

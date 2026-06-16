@@ -1,9 +1,10 @@
 /* Copyright (c) 2021-2026 Richard Rodger and other contributors, MIT License */
 
-// Import the Jsonic (relaxed-JSON) API used by this plugin. The plugin
-// parses its embedded relaxed-JSON grammar via Jsonic.make(), so it
-// depends on the @tabnas/jsonic shim rather than the bare tabnas engine.
-import { Jsonic, Plugin, Rule, Context, Lex } from '@tabnas/jsonic'
+// The engine is the tabnas parser; jsonic supplies the relaxed-JSON
+// grammar that the embedded grammar text is authored in. Engine TYPES
+// (Plugin, Rule, Context, Lex) are re-exported by @tabnas/parser.
+import { Tabnas, Plugin, Rule, Context, Lex } from '@tabnas/parser'
+import { jsonic } from '@tabnas/jsonic'
 
 type Json5Options = {
   infinity: boolean
@@ -197,7 +198,7 @@ const grammarText = `
 // --- END EMBEDDED json5-grammar.jsonic ---
 
 // Plugin implementation.
-const Json5: Plugin = (jsonic: Jsonic, options: Json5Options) => {
+const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
   // fixedCheck runs before every lexer step but gates its own work so
   // the preprocessing happens exactly once per parse. It rewrites
   // backslash+CRLF to backslash+LF so the escape-map entry for "\r"
@@ -248,9 +249,9 @@ const Json5: Plugin = (jsonic: Jsonic, options: Json5Options) => {
     return sign * parseInt(s.slice(2), 16)
   }
 
-  // Parse the embedded grammar using a standard Jsonic instance, then
+  // Parse the embedded grammar with a jsonic-grammar engine, then
   // patch the placeholders and attach the ref map.
-  const grammarDef: any = Jsonic.make()(grammarText)
+  const grammarDef: any = new Tabnas().use(jsonic).parse(grammarText)
 
   // Substitute the placeholder bare-identifier strings with the real
   // character sets. (The grammar parser cannot round-trip some of
@@ -295,11 +296,11 @@ const Json5: Plugin = (jsonic: Jsonic, options: Json5Options) => {
   }
   grammarDef.ref = refs
 
-  jsonic.grammar(grammarDef)
+  tn.grammar(grammarDef)
 
   // Jsonic's option merge is additive for char sets, so explicitly prune
   // backtick from the quote sets when it's not enabled.
-  const cfg: any = jsonic.internal().config
+  const cfg: any = tn.internal().config
   if (!options.backtickString) {
     delete cfg.string.quoteMap['`']
     delete cfg.string.multiChars['`']
@@ -311,9 +312,9 @@ const Json5: Plugin = (jsonic: Jsonic, options: Json5Options) => {
   //     source text is not a valid JSON5 IdentifierName.
   //   - val.Open loses its `#ZZ jsonic` alt (when requireValue is set)
   //     so a source containing only whitespace/comments errors out.
-  const TinTX = jsonic.token('#TX')
+  const TinTX = tn.token('#TX')
 
-  jsonic.rule('pair', (rs: any) => {
+  tn.rule('pair', (rs: any) => {
     const alts = rs.def?.open || rs.open
     if (Array.isArray(alts)) {
       const filtered = alts.filter(
@@ -339,7 +340,7 @@ const Json5: Plugin = (jsonic: Jsonic, options: Json5Options) => {
   })
 
   if (options.requireValue) {
-    jsonic.rule('val', (rs: any) => {
+    tn.rule('val', (rs: any) => {
       const alts = rs.def?.open || rs.open
       if (Array.isArray(alts)) {
         const filtered = alts.filter((a: any) => !isZZJsonicAlt(a))
@@ -351,8 +352,8 @@ const Json5: Plugin = (jsonic: Jsonic, options: Json5Options) => {
   }
 
   if (options.requireValue) {
-    const parser = jsonic.internal().parser
-    const origStart = parser.start.bind(parser)
+    const parser: any = tn.internal().parser
+    const origStart: (...args: any[]) => any = parser.start.bind(parser)
     parser.start = (src: string, ...rest: any[]) => {
       if ('' === src || null == src) {
         const err: any = new Error('JSON5 input must contain a value')

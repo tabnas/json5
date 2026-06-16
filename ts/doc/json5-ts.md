@@ -8,10 +8,11 @@ and trailing-decimal numbers, explicit `+` signs, and string line
 continuations.
 
 ```bash
-npm install @tabnas/json5
+npm install @tabnas/parser @tabnas/json5 @tabnas/jsonic
 ```
 
-Requires `jsonic` >= 2 as a peer dependency.
+Requires `@tabnas/parser` >= 2 and `@tabnas/jsonic` >= 2 as peer
+dependencies.
 
 
 ## Tutorials
@@ -22,12 +23,13 @@ Install the plugin on a Jsonic instance, then call it like any
 Jsonic parser — the return value is the decoded JavaScript value.
 
 ```js
-import { Jsonic } from '@tabnas/jsonic'
+import { Tabnas } from '@tabnas/parser'
+import { jsonic } from '@tabnas/jsonic'
 import { Json5 } from '@tabnas/json5'
 
-const j = Jsonic.make().use(Json5)
+const j = new Tabnas().use(jsonic).use(Json5)
 
-const doc = j(`{
+const doc = j.parse(`{
   // A JSON5 document
   name: 'Alice',
   age: 30,
@@ -45,17 +47,18 @@ Everything the spec admits round-trips to `number`, including
 trailing-decimal-point forms, and explicit `+` signs.
 
 ```js
-const { Jsonic } = require('@tabnas/jsonic')
+const { Tabnas } = require('@tabnas/parser')
+const { jsonic } = require('@tabnas/jsonic')
 const { Json5 } = require('@tabnas/json5')
 
-const j = Jsonic.make().use(Json5)
+const j = new Tabnas().use(jsonic).use(Json5)
 
-j('0x1F')        // => 31
-j('.5')          // => 0.5
-j('5.')          // => 5
-j('+1e10')       // => 10000000000
-j('-Infinity')   // => -Infinity
-j('NaN')         // => NaN
+j.parse('0x1F')        // => 31
+j.parse('.5')          // => 0.5
+j.parse('5.')          // => 5
+j.parse('+1e10')       // => 10000000000
+j.parse('-Infinity')   // => -Infinity
+j.parse('NaN')         // => NaN
 ```
 
 ### Parse strings with line continuations
@@ -65,12 +68,13 @@ A backslash immediately before a line terminator (`LF`, `CR`, `CRLF`,
 terminator in place — so the string continues on the next line.
 
 ```js
-const { Jsonic } = require('@tabnas/jsonic')
+const { Tabnas } = require('@tabnas/parser')
+const { jsonic } = require('@tabnas/jsonic')
 const { Json5 } = require('@tabnas/json5')
 
-const j = Jsonic.make().use(Json5)
+const j = new Tabnas().use(jsonic).use(Json5)
 
-j("'line1 \\\nline2'")
+j.parse("'line1 \\\nline2'")
 // => 'line1 \nline2'
 ```
 
@@ -83,12 +87,13 @@ Standard JSON5 forbids `#` comments. Enable them for compatibility
 with ad-hoc config files:
 
 ```js
-const { Jsonic } = require('@tabnas/jsonic')
+const { Tabnas } = require('@tabnas/parser')
+const { jsonic } = require('@tabnas/jsonic')
 const { Json5 } = require('@tabnas/json5')
 
-const j = Jsonic.make().use(Json5, { hashComment: true })
+const j = new Tabnas().use(jsonic).use(Json5, { hashComment: true })
 
-j('# comment\n42')   // => 42
+j.parse('# comment\n42')   // => 42
 ```
 
 ### Accept backtick-quoted strings
@@ -97,12 +102,13 @@ Not part of the JSON5 spec, but occasionally useful when consuming
 template-literal-like source:
 
 ```js
-const { Jsonic } = require('@tabnas/jsonic')
+const { Tabnas } = require('@tabnas/parser')
+const { jsonic } = require('@tabnas/jsonic')
 const { Json5 } = require('@tabnas/json5')
 
-const j = Jsonic.make().use(Json5, { backtickString: true })
+const j = new Tabnas().use(jsonic).use(Json5, { backtickString: true })
 
-j('`hello`')   // => 'hello'
+j.parse('`hello`')   // => 'hello'
 ```
 
 ### Accept JavaScript-style numeric extensions
@@ -112,18 +118,19 @@ separators (`1_000`) are rejected by default. Enable them
 individually:
 
 ```js
-const { Jsonic } = require('@tabnas/jsonic')
+const { Tabnas } = require('@tabnas/parser')
+const { jsonic } = require('@tabnas/jsonic')
 const { Json5 } = require('@tabnas/json5')
 
-const j = Jsonic.make().use(Json5, {
+const j = new Tabnas().use(jsonic).use(Json5, {
   octal: true,
   binary: true,
   numberSeparator: true,
 })
 
-j('0o17')    // => 15
-j('0b101')   // => 5
-j('1_000')   // => 1000
+j.parse('0o17')    // => 15
+j.parse('0b101')   // => 5
+j.parse('1_000')   // => 1000
 ```
 
 ### Accept bare top-level text
@@ -133,12 +140,13 @@ position is rejected (JSON5 requires a typed value). Disable for
 loose input:
 
 ```js
-const { Jsonic } = require('@tabnas/jsonic')
+const { Tabnas } = require('@tabnas/parser')
+const { jsonic } = require('@tabnas/jsonic')
 const { Json5 } = require('@tabnas/json5')
 
-const j = Jsonic.make().use(Json5, { strictValue: false })
+const j = new Tabnas().use(jsonic).use(Json5, { strictValue: false })
 
-j('foo')   // => 'foo'
+j.parse('foo')   // => 'foo'
 ```
 
 ### Allow empty input
@@ -148,13 +156,14 @@ Return a no-value result instead — an empty source yields `null`,
 a comments-only source yields `undefined`:
 
 ```js
-const { Jsonic } = require('@tabnas/jsonic')
+const { Tabnas } = require('@tabnas/parser')
+const { jsonic } = require('@tabnas/jsonic')
 const { Json5 } = require('@tabnas/json5')
 
-const j = Jsonic.make().use(Json5, { requireValue: false })
+const j = new Tabnas().use(jsonic).use(Json5, { requireValue: false })
 
-j('')           // => null
-j('// only\n')  // => undefined
+j.parse('')           // => null
+j.parse('// only\n')  // => undefined
 ```
 
 
@@ -208,7 +217,7 @@ Both ports pass the full official
 ```typescript
 import { Json5 } from '@tabnas/json5'
 
-Jsonic.make().use(Json5, options?)
+new Tabnas().use(jsonic).use(Json5, options?)
 ```
 
 Installs the JSON5 plugin. Pass an `options` object to override any
