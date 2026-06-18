@@ -32,7 +32,7 @@ import (
 )
 
 // Version is the semantic version of this plugin.
-const Version = "0.1.1"
+const Version = "0.2.0"
 
 // JSON5 WhiteSpace characters: HT, VT, FF, SP, NBSP, BOM, plus the
 // Unicode Zs category chars the spec enumerates.
