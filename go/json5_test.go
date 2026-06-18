@@ -1,4 +1,4 @@
-package json5
+package tabnasjson5
 
 import (
 	"math"

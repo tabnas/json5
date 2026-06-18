@@ -24,13 +24,13 @@ package main
 import (
 	"fmt"
 
-	jsonic "github.com/tabnas/jsonic/go"
-	json5 "github.com/tabnas/json5/go"
+	tabnasjsonic "github.com/tabnas/jsonic/go"
+	tabnasjson5 "github.com/tabnas/json5/go"
 )
 
 func main() {
-	j := jsonic.Make()
-	if err := j.UseDefaults(json5.Json5, json5.Defaults()); err != nil {
+	j := tabnasjsonic.Make()
+	if err := j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults()); err != nil {
 		panic(err)
 	}
 

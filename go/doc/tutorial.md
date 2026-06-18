@@ -1,7 +1,7 @@
 # Tutorial — your first JSON5 parse (Go)
 
 This walks you from nothing to a working parse with the `json5` plugin
-for the Go port of jsonic. Follow it in order; each step builds on the
+for the Go port of tabnasjsonic. Follow it in order; each step builds on the
 last. When you finish you will have installed the plugin, parsed a real
 JSON5 document, inspected the result types, and handled a parse error.
 
@@ -29,13 +29,13 @@ package main
 import (
 	"fmt"
 
-	jsonic "github.com/tabnas/jsonic/go"
-	json5 "github.com/tabnas/json5/go"
+	tabnasjsonic "github.com/tabnas/jsonic/go"
+	tabnasjson5 "github.com/tabnas/json5/go"
 )
 
 func main() {
-	j := jsonic.Make()
-	if err := j.UseDefaults(json5.Json5, json5.Defaults()); err != nil {
+	j := tabnasjsonic.Make()
+	if err := j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults()); err != nil {
 		panic(err)
 	}
 
@@ -105,8 +105,8 @@ passing an override map as the third argument to `UseDefaults`. Here,
 allow `#` comments:
 
 ```go
-j := jsonic.Make()
-j.UseDefaults(json5.Json5, json5.Defaults(), map[string]any{
+j := tabnasjsonic.Make()
+j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults(), map[string]any{
 	"hashComment": true,
 })
 
@@ -126,11 +126,11 @@ import (
 	"errors"
 	"fmt"
 
-	jsonic "github.com/tabnas/jsonic/go"
+	tabnasjsonic "github.com/tabnas/jsonic/go"
 )
 
 _, err := j.Parse("foo") // a bare word is not a JSON5 value
-var je *jsonic.JsonicError
+var je *tabnasjsonic.JsonicError
 if errors.As(err, &je) {
 	fmt.Println(je.Code)        // unexpected
 	fmt.Println(je.Row, je.Col) // 1 1
@@ -138,7 +138,7 @@ if errors.As(err, &je) {
 ```
 
 `err.Error()` renders a formatted message with a caret pointing at the
-source location — useful to show a user. The `*jsonic.JsonicError`
+source location — useful to show a user. The `*tabnasjsonic.JsonicError`
 fields (`Code`, `Row`, `Col`, `Hint`, …) are for your code to branch on.
 
 ## Where to go next

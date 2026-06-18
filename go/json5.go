@@ -1,4 +1,4 @@
-// Package json5 is a Jsonic plugin that configures a Jsonic parser
+// Package tabnasjson5 is a Jsonic plugin that configures a Jsonic parser
 // instance to parse JSON5 syntax:
 // single- and double-quoted strings, unquoted and single-quoted object
 // keys, trailing commas, `//` and `/* */` comments, hexadecimal integers,
@@ -10,16 +10,16 @@
 // pass the full official json5/json5-tests corpus.
 //
 //	import (
-//	    jsonic "github.com/tabnas/jsonic/go"
-//	    json5 "github.com/tabnas/json5/go"
+//	    tabnasjsonic "github.com/tabnas/jsonic/go"
+//	    tabnasjson5 "github.com/tabnas/json5/go"
 //	)
 //
-//	j := jsonic.Make()
-//	if err := j.UseDefaults(json5.Json5, json5.Defaults()); err != nil {
+//	j := tabnasjsonic.Make()
+//	if err := j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults()); err != nil {
 //	    return err
 //	}
 //	v, err := j.Parse(`{ a: 1, b: +Infinity, c: [1,2,] }`)
-package json5
+package tabnasjson5
 
 import (
 	"math"
@@ -204,14 +204,14 @@ const grammarText = `# JSON5 Grammar Definition
 // --- END EMBEDDED json5-grammar.jsonic ---
 
 // Defaults returns a fresh copy of the default plugin options.
-// Use via jsonic.UseDefaults:
+// Use via tabnasjsonic.UseDefaults:
 //
-//	j.UseDefaults(json5.Json5, json5.Defaults())
+//	j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults())
 //
 // Override individual flags by passing a third argument with just the
 // keys you want to change:
 //
-//	j.UseDefaults(json5.Json5, json5.Defaults(), map[string]any{
+//	j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults(), map[string]any{
 //	    "hashComment": true,
 //	})
 func Defaults() map[string]any {
@@ -283,10 +283,10 @@ func isValidIdentifierName(s string) bool {
 	return true
 }
 
-// Json5 is the plugin entry point. Pass it to jsonic.UseDefaults
+// Json5 is the plugin entry point. Pass it to tabnasjsonic.UseDefaults
 // together with Defaults():
 //
-//	j.UseDefaults(json5.Json5, json5.Defaults())
+//	j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults())
 func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 	infinity := optBool(opts, "infinity", true)
 	hex := optBool(opts, "hex", true)
