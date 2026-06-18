@@ -1,0 +1,189 @@
+# Concepts (Go)
+
+Background on how the `json5` Go package is put together, and why. This
+is understanding-oriented reading — for steps see the
+[tutorial](tutorial.md) and [how-to guide](guide.md), and for exact
+signatures and options see the [reference](reference.md).
+
+## JSON5 is a grammar on an engine
+
+The plugin is not a parser. It is a *configuration* of one. Three layers
+stack up:
+
+- the **engine** — the Go port of `tabnas` — a rule-based parser over a
+  configurable, matcher-based lexer;
+- the **relaxed-JSON grammar** — the Go port of jsonic
+  (`github.com/tabnas/jsonic/go`) — the rules that turn `a:1,b:2` into a
+  map, comments, trailing commas, and so on;
+- the **JSON5 plugin** — this package — which constrains and extends the
+  jsonic grammar so that what is accepted is exactly JSON5.
+
+You install the plugin onto a jsonic instance with `UseDefaults`. The
+jsonic rules must already be present (they are, on a `jsonic.Make()`
+instance); the JSON5 plugin is meaningless without them to modify.
+
+The payoff is that JSON5 ends up being mostly *data*. The bulk of the
+plugin is a declarative grammar spec; the imperative code is a thin layer
+that patches a few things the spec cannot express.
+
+## The shared grammar file
+
+The grammar lives once in the repository-root `json5-grammar.jsonic`. A
+build step (`ts/embed-grammar.js`) inlines it verbatim into both
+`go/json5.go` and `ts/src/json5.ts` between marker comments, so the two
+language ports parse the *same* spec and cannot drift. The file is itself
+written in jsonic syntax — a relaxed-JSON document describing engine
+options.
+
+At plugin-install time the flow is:
+
+1. A throwaway `jsonic.Make()` instance parses the embedded grammar text
+   into a plain options map.
+2. The plugin substitutes the placeholder character-set identifiers
+   (`JSON5_WHITESPACE`, `JSON5_QUOTE_CHARS`, …) with the real Unicode
+   strings. These are kept out of the grammar file because some code
+   points (BOM, U+2028/U+2029) do not round-trip losslessly through the
+   grammar parser as string literals.
+3. Option-dependent overrides are layered on: `hex`/`octal`/`binary`/
+   `numberSeparator` toggle number-lexer flags, `hashComment` enables the
+   `#` comment def, `backtickString` adds the backtick quote,
+   `requireValue` flips `lex.empty`, and `infinity` injects the
+   `Infinity`/`NaN` value keywords.
+4. A `ref` map wires up the `@`-prefixed function references in the
+   grammar (the lex-check hooks and regex value parsers).
+5. The patched spec is applied with `j.Grammar()`, then a few rule-level
+   trims run that the declarative file cannot express.
+
+## How JSON5 is carved out of jsonic
+
+jsonic is deliberately more permissive than JSON5. The plugin makes it
+*less* permissive in specific, deliberate ways:
+
+- **No implicit top-level structures.** jsonic accepts `1,2,3` and `a:1`
+  at the document root; JSON5 wants a single value. The grammar excludes
+  the implicit (`imp`) rule alternates, and a leading-comma object alt is
+  dropped from `pair`.
+- **Restricted token sets.** Value positions drop the bare-text token
+  (`#TX`), so `foo` is not a value. Key positions drop the number token
+  (`#NR`), so `{10:1}` is rejected. In Go these restrictions are applied
+  by filtering the resolved alternates directly (`filterTinFromAlts`),
+  because the pre-built val/pair alts do not pick up the grammar's
+  `tokenSet` at parse time.
+- **Identifier-name keys.** An unquoted key must be a valid ECMAScript
+  5.1 `IdentifierName`. A `pair` after-open validator checks each
+  unquoted key's source and rejects ones that are not — this lets
+  `{while:true}` through but stops `{10:1}` and symbol keys.
+- **Stricter numbers.** Octal, binary, and digit separators are off by
+  default, and a regex exclusion (`^[+-]?0[0-9]`) rejects JS-style
+  leading-zero integers like `010` and `080`.
+
+## The lexer-check hooks
+
+Two things JSON5 needs cannot be expressed as plain lexer options, so the
+plugin installs **lex-check** hooks — `jsonic.LexCheck` functions the
+lexer calls at each step:
+
+- **String line continuations.** A backslash immediately followed by a
+  line terminator must produce *nothing*, letting a string span lines.
+  The escape map cannot encode this (the lexer discards any escape whose
+  replacement is empty), so a `fixedCheck` hook preprocesses the whole
+  source once per parse via a `strings.Replacer`, stripping `\` +
+  line-terminator sequences before lexing. This is why
+  `"line1\<newline>line2"` parses to `"line1line2"`.
+- **Identifier-aware text rejection.** A `textCheck` hook stops the lexer
+  at any unquoted run that neither begins a valid JSON5 `IdentifierStart`
+  nor matches a registered value keyword / regex. This produces a clean
+  "unexpected character" at the right column instead of letting jsonic
+  swallow stray text.
+
+In the Go port the hooks are also wired directly onto the resolved config
+(`cfg.FixedCheck`, `cfg.TextCheck`) because the option-map path does not
+forward `check` through to the resolved options struct in this version.
+
+## Two regex value defs
+
+Two number shapes are not recognised by the engine's built-in number
+matcher, so they are registered as regex-matched value definitions in the
+grammar (and so behave identically in both ports):
+
+- **Trailing-decimal-with-exponent** (`5.e4`) — matched by
+  `^[+-]?[0-9]+\.[eE][+-]?[0-9]+`, parsed with `strconv.ParseFloat`.
+- **Uppercase `0X` hex** (`0X1f`) — matched by `^[+-]?0X[0-9a-fA-F]+`,
+  parsed as a base-16 integer and returned as `float64`.
+
+## Why `Infinity` / `NaN` are injected in code
+
+`true`, `false`, and `null` are ordinary value keywords and sit in the
+grammar file directly. `Infinity` and `NaN` cannot: they are
+floating-point values (`math.Inf`, `math.NaN`), and the grammar parser
+cannot round-trip them through a relaxed-JSON document as the actual
+value. So the plugin injects the six keywords (`Infinity`, `+Infinity`,
+`-Infinity`, `NaN`, `+NaN`, `-NaN`) into the value defs at install time,
+gated by the `infinity` option.
+
+## Accepted vs rejected — the edge cases
+
+| Input | Result | Why |
+|---|---|---|
+| `{while: true}` | accepted | `while` is a valid identifier name; reserved words are fine as keys. |
+| `{10: 1}` | rejected | Numeric keys are not allowed (`#NR` filtered from key alts). |
+| `080` | rejected | JS-style leading zero excluded by the number regex. |
+| `0o17` | rejected (default) | Octal is opt-in (`octal: true`). |
+| `foo` | rejected (default) | Bare text dropped from value positions (`strictValue: true`). |
+| `{,}` | rejected | Leading-comma object alt removed from `pair`. |
+| `1,2,3` | rejected | No implicit top-level list. |
+| `5.e4` | accepted → `50000` | Regex value def. |
+| `0X1f` | accepted → `31` | Uppercase-hex regex value def. |
+
+## Compliance
+
+Both ports run the full official
+[`json5/json5-tests`](https://github.com/json5/json5-tests) corpus,
+vendored under `test/json5-tests`. Fixture extensions encode the
+expectation: `.json`/`.json5` must parse, `.js` (valid ES5 but not
+JSON5) and `.txt` (invalid everywhere) must error. The Go suite
+(`suite_test.go`) and the TS suite agree on every fixture.
+
+## Differences from the TS version
+
+The TypeScript implementation is authoritative; the Go port is a faithful
+port that shares the same grammar file and passes the same corpus. The
+differences below do **not** change a successful parse value — they
+concern API shape, host-language value types, and one error code.
+
+### API shape
+
+| Aspect | TypeScript | Go |
+|---|---|---|
+| Install | `new Tabnas().use(jsonic).use(Json5, opts?)` | `j := jsonic.Make(); j.UseDefaults(json5.Json5, json5.Defaults(), opts...)` |
+| Plugin signature | `(engine, options) => void` | `func(j *jsonic.Jsonic, opts map[string]any) error` |
+| Options value | partial `Json5Options` object | `map[string]any` (merged over `Defaults()`) |
+| Defaults | `Json5.defaults` (property) | `json5.Defaults()` (function returning a fresh map) |
+| Parse entry | `instance.parse(src)` (throws) | `j.Parse(src)` returns `(any, error)`, never panics |
+| Version constant | — | `json5.Version` |
+
+### Value types
+
+A successful parse returns the same logical values, but the host types
+differ where the languages differ:
+
+| Value | TypeScript | Go |
+|---|---|---|
+| Object | object literal | `map[string]any` |
+| Array | array | `[]any` |
+| Number | `number` | `float64` |
+| String | `string` | `string` |
+| Boolean | `boolean` | `bool` |
+| `null` | `null` | `nil` |
+| Empty input (`requireValue: false`) | `undefined` | `nil` |
+| `Infinity` / `NaN` | `Infinity` / `NaN` | `math.Inf(1)` / `math.NaN()` |
+
+### Errors
+
+Both raise errors at the same row/column for the same invalid inputs.
+The one accepted difference is empty input under the default
+`requireValue: true`: the TS port throws with code `json5_empty`, while
+the Go port returns an `*jsonic.JsonicError` with code `unexpected`.
+Both still report an error; only the `Code` differs. Errors in Go are
+returned (never thrown/panicked); inspect them with `errors.As(err,
+&je)` where `je` is `*jsonic.JsonicError`.
