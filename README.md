@@ -38,12 +38,12 @@ j.parse('{ a: 1, b: [2, 3,], }')   // => { a: 1, b: [2, 3] }
 
 ```go
 import (
-	jsonic "github.com/tabnas/jsonic/go"
-	json5 "github.com/tabnas/json5/go"
+	tabnasjsonic "github.com/tabnas/jsonic/go"
+	tabnasjson5 "github.com/tabnas/json5/go"
 )
 
-j := jsonic.Make()
-j.UseDefaults(json5.Json5, json5.Defaults())
+j := tabnasjsonic.Make()
+j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults())
 v, _ := j.Parse(`{ a: 1, b: [2, 3,], }`)
 // v: map[string]any{"a": 1.0, "b": []any{2.0, 3.0}}
 ```

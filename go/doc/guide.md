@@ -10,8 +10,8 @@ Every recipe builds a parser the same way — a jsonic instance with the
 
 ```go
 import (
-	jsonic "github.com/tabnas/jsonic/go"
-	json5 "github.com/tabnas/json5/go"
+	tabnasjsonic "github.com/tabnas/jsonic/go"
+	tabnasjson5 "github.com/tabnas/json5/go"
 )
 ```
 
@@ -22,8 +22,8 @@ an `error`, which you should check (it is non-nil only if the plugin
 fails to install):
 
 ```go
-j := jsonic.Make()
-if err := j.UseDefaults(json5.Json5, json5.Defaults()); err != nil {
+j := tabnasjsonic.Make()
+if err := j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults()); err != nil {
 	return err
 }
 
@@ -40,8 +40,8 @@ Each is merged over `Defaults()`, so you only set the keys you want to
 change:
 
 ```go
-j := jsonic.Make()
-j.UseDefaults(json5.Json5, json5.Defaults(), map[string]any{
+j := tabnasjsonic.Make()
+j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults(), map[string]any{
 	"hashComment": true,
 })
 
@@ -58,8 +58,8 @@ JSON5 has only `//` and `/* */` comments, so `#` is rejected by default.
 Set `hashComment: true` to also treat `#` as a line comment:
 
 ```go
-j := jsonic.Make()
-j.UseDefaults(json5.Json5, json5.Defaults(), map[string]any{"hashComment": true})
+j := tabnasjsonic.Make()
+j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults(), map[string]any{"hashComment": true})
 
 v, _ := j.Parse("# hello\n42")
 // v: 42.0
@@ -71,8 +71,8 @@ v, _ := j.Parse("# hello\n42")
 `backtickString: true`:
 
 ```go
-j := jsonic.Make()
-j.UseDefaults(json5.Json5, json5.Defaults(), map[string]any{"backtickString": true})
+j := tabnasjsonic.Make()
+j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults(), map[string]any{"backtickString": true})
 
 v, _ := j.Parse("`backtick`")
 // v: "backtick"
@@ -84,8 +84,8 @@ JSON5 numbers are decimal and hex only. The three flags below add the
 JavaScript numeric extensions:
 
 ```go
-j := jsonic.Make()
-j.UseDefaults(json5.Json5, json5.Defaults(), map[string]any{
+j := tabnasjsonic.Make()
+j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults(), map[string]any{
 	"octal":           true,
 	"binary":          true,
 	"numberSeparator": true,
@@ -105,8 +105,8 @@ By default a bare word is rejected (`foo` is not a JSON5 value). Set
 text parses as a string:
 
 ```go
-j := jsonic.Make()
-j.UseDefaults(json5.Json5, json5.Defaults(), map[string]any{"strictValue": false})
+j := tabnasjsonic.Make()
+j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults(), map[string]any{"strictValue": false})
 
 v, _ := j.Parse("foo")
 // v: "foo"
@@ -119,8 +119,8 @@ an error. Set `requireValue: false` to let an empty (or
 whitespace/comment-only) source resolve to `nil`:
 
 ```go
-j := jsonic.Make()
-j.UseDefaults(json5.Json5, json5.Defaults(), map[string]any{"requireValue": false})
+j := tabnasjsonic.Make()
+j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults(), map[string]any{"requireValue": false})
 
 v, err := j.Parse("")
 // v == nil, err == nil
@@ -129,20 +129,20 @@ v, err := j.Parse("")
 ## Handle parse errors
 
 A failed `Parse` returns an `error` — it never panics. Use `errors.As`
-to reach the structured `*jsonic.JsonicError`:
+to reach the structured `*tabnasjsonic.JsonicError`:
 
 ```go
 import (
 	"errors"
 
-	jsonic "github.com/tabnas/jsonic/go"
+	tabnasjsonic "github.com/tabnas/jsonic/go"
 )
 
-j := jsonic.Make()
-j.UseDefaults(json5.Json5, json5.Defaults())
+j := tabnasjsonic.Make()
+j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults())
 
 _, err := j.Parse("foo") // a bare word is not a JSON5 value
-var je *jsonic.JsonicError
+var je *tabnasjsonic.JsonicError
 if errors.As(err, &je) {
 	// je.Code == "unexpected", je.Row == 1, je.Col == 1
 }
@@ -161,8 +161,8 @@ This parses exactly the JSON5 spec and nothing more, and any valid JSON
 is valid JSON5:
 
 ```go
-j := jsonic.Make()
-j.UseDefaults(json5.Json5, json5.Defaults())
+j := tabnasjsonic.Make()
+j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults())
 
 v, _ := j.Parse(`{"a":1,"b":[2,null,true]}`)
 // v: map[string]any{"a": 1.0, "b": []any{2.0, nil, true}}

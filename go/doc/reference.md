@@ -14,19 +14,19 @@ go get github.com/tabnas/json5/go@latest
 
 ```go
 import (
-	jsonic "github.com/tabnas/jsonic/go"
-	json5 "github.com/tabnas/json5/go"
+	tabnasjsonic "github.com/tabnas/jsonic/go"
+	tabnasjson5 "github.com/tabnas/json5/go"
 )
 ```
 
-`json5` is a grammar plugin for the Go port of jsonic. It is installed
-onto a `*jsonic.Jsonic` instance with `UseDefaults`.
+`json5` is a grammar plugin for the Go port of tabnasjsonic. It is installed
+onto a `*tabnasjsonic.Jsonic` instance with `UseDefaults`.
 
 ## Exports
 
 | Export | Kind | Description |
 |---|---|---|
-| `Json5` | `func(j *jsonic.Jsonic, opts map[string]any) error` | The plugin function. Pass it to `UseDefaults`. |
+| `Json5` | `func(j *tabnasjsonic.Jsonic, opts map[string]any) error` | The plugin function. Pass it to `UseDefaults`. |
 | `Defaults()` | `func() map[string]any` | Returns a fresh copy of the default option map (strict JSON5). |
 | `Version` | `const string` | The plugin's semantic version. |
 
@@ -35,15 +35,15 @@ through the jsonic instance you install the plugin on.
 
 ## API
 
-### `jsonic.Make() *jsonic.Jsonic`
+### `tabnasjsonic.Make() *tabnasjsonic.Jsonic`
 
 Create a fresh jsonic parser instance. The plugin is installed onto it.
 
 ### `j.UseDefaults(plugin, defaults, opts...) error`
 
 ```go
-func (j *jsonic.Jsonic) UseDefaults(
-	plugin func(*jsonic.Jsonic, map[string]any) error,
+func (j *tabnasjsonic.Jsonic) UseDefaults(
+	plugin func(*tabnasjsonic.Jsonic, map[string]any) error,
 	defaults map[string]any,
 	opts ...map[string]any,
 ) error
@@ -55,14 +55,14 @@ error only if the plugin fails to install. The instance is reusable
 afterwards.
 
 ```go
-j := jsonic.Make()
-err := j.UseDefaults(json5.Json5, json5.Defaults())
+j := tabnasjsonic.Make()
+err := j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults())
 ```
 
 With overrides:
 
 ```go
-j.UseDefaults(json5.Json5, json5.Defaults(), map[string]any{
+j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults(), map[string]any{
 	"hashComment": true,
 })
 ```
@@ -74,20 +74,20 @@ panics. This is jsonic's standard parse method; the plugin only
 configures how it behaves.
 
 ```go
-j := jsonic.Make()
-j.UseDefaults(json5.Json5, json5.Defaults())
+j := tabnasjsonic.Make()
+j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults())
 v, err := j.Parse("{a:1}")
 // v: map[string]any{"a": 1.0}, err: nil
 ```
 
-### `json5.Defaults() map[string]any`
+### `tabnasjson5.Defaults() map[string]any`
 
 Returns a fresh copy of the default options. A strict-JSON5
 configuration. Always returns a new map, so you can mutate the result
 freely.
 
 ```go
-json5.Defaults()
+tabnasjson5.Defaults()
 // map[string]any{
 //   "infinity": true, "hex": true, "hashComment": false,
 //   "backtickString": false, "numberSeparator": false,
@@ -159,14 +159,14 @@ for the full set with examples. In summary:
 ## Errors
 
 A failed `Parse` returns an `error` whose concrete type is
-`*jsonic.JsonicError` (an alias for `*tabnas.TabnasError`). Reach it with
+`*tabnasjsonic.JsonicError` (an alias for `*tabnas.TabnasError`). Reach it with
 `errors.As`:
 
 ```go
 import "errors"
 
 _, err := j.Parse("foo")
-var je *jsonic.JsonicError
+var je *tabnasjsonic.JsonicError
 if errors.As(err, &je) {
 	// je.Code, je.Row, je.Col, je.Hint, je.Error()
 }

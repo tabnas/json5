@@ -19,7 +19,7 @@ stack up:
   jsonic grammar so that what is accepted is exactly JSON5.
 
 You install the plugin onto a jsonic instance with `UseDefaults`. The
-jsonic rules must already be present (they are, on a `jsonic.Make()`
+jsonic rules must already be present (they are, on a `tabnasjsonic.Make()`
 instance); the JSON5 plugin is meaningless without them to modify.
 
 The payoff is that JSON5 ends up being mostly *data*. The bulk of the
@@ -37,7 +37,7 @@ options.
 
 At plugin-install time the flow is:
 
-1. A throwaway `jsonic.Make()` instance parses the embedded grammar text
+1. A throwaway `tabnasjsonic.Make()` instance parses the embedded grammar text
    into a plain options map.
 2. The plugin substitutes the placeholder character-set identifiers
    (`JSON5_WHITESPACE`, `JSON5_QUOTE_CHARS`, …) with the real Unicode
@@ -80,7 +80,7 @@ jsonic is deliberately more permissive than JSON5. The plugin makes it
 ## The lexer-check hooks
 
 Two things JSON5 needs cannot be expressed as plain lexer options, so the
-plugin installs **lex-check** hooks — `jsonic.LexCheck` functions the
+plugin installs **lex-check** hooks — `tabnasjsonic.LexCheck` functions the
 lexer calls at each step:
 
 - **String line continuations.** A backslash immediately followed by a
@@ -155,12 +155,12 @@ concern API shape, host-language value types, and one error code.
 
 | Aspect | TypeScript | Go |
 |---|---|---|
-| Install | `new Tabnas().use(jsonic).use(Json5, opts?)` | `j := jsonic.Make(); j.UseDefaults(json5.Json5, json5.Defaults(), opts...)` |
-| Plugin signature | `(engine, options) => void` | `func(j *jsonic.Jsonic, opts map[string]any) error` |
+| Install | `new Tabnas().use(jsonic).use(Json5, opts?)` | `j := tabnasjsonic.Make(); j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults(), opts...)` |
+| Plugin signature | `(engine, options) => void` | `func(j *tabnasjsonic.Jsonic, opts map[string]any) error` |
 | Options value | partial `Json5Options` object | `map[string]any` (merged over `Defaults()`) |
-| Defaults | `Json5.defaults` (property) | `json5.Defaults()` (function returning a fresh map) |
+| Defaults | `Json5.defaults` (property) | `tabnasjson5.Defaults()` (function returning a fresh map) |
 | Parse entry | `instance.parse(src)` (throws) | `j.Parse(src)` returns `(any, error)`, never panics |
-| Version constant | — | `json5.Version` |
+| Version constant | — | `tabnasjson5.Version` |
 
 ### Value types
 
@@ -183,7 +183,7 @@ differ where the languages differ:
 Both raise errors at the same row/column for the same invalid inputs.
 The one accepted difference is empty input under the default
 `requireValue: true`: the TS port throws with code `json5_empty`, while
-the Go port returns an `*jsonic.JsonicError` with code `unexpected`.
+the Go port returns an `*tabnasjsonic.JsonicError` with code `unexpected`.
 Both still report an error; only the `Code` differs. Errors in Go are
 returned (never thrown/panicked); inspect them with `errors.As(err,
-&je)` where `je` is `*jsonic.JsonicError`.
+&je)` where `je` is `*tabnasjsonic.JsonicError`.
