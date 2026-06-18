@@ -7,7 +7,7 @@ const fs = require('fs')
 const path = require('path')
 
 const grammar = fs.readFileSync(
-  path.join(__dirname, 'json5-grammar.jsonic'),
+  path.join(__dirname, '..', 'json5-grammar.jsonic'),
   'utf8',
 )
 

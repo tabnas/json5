@@ -11,6 +11,14 @@ This repository contains:
 
 See [`ts/README.md`](ts/README.md) for usage.
 
+## Grammar
+
+The grammar is defined once in the top-level
+[`json5-grammar.jsonic`](json5-grammar.jsonic) and embedded into both the
+TypeScript ([`ts/src/json5.ts`](ts/src/json5.ts)) and Go
+([`go/json5.go`](go/json5.go)) implementations by
+[`ts/embed-grammar.js`](ts/embed-grammar.js), so the two ports stay in sync.
+
 ## Grammar diagram
 
 The grammar as a railroad/syntax diagram, generated from the live grammar
