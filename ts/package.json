@@ -1,6 +1,6 @@
 {
   "name": "@tabnas/json5",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "This plugin configures the [Tabnas](https://github.com/tabnas/json5) JSON parser to parse JSON5 syntax.",
   "main": "dist/json5.js",
   "type": "commonjs",
@@ -46,8 +46,8 @@
     "typescript": "^5.9.3"
   },
   "peerDependencies": {
-    "@tabnas/jsonic": ">=2",
-    "@tabnas/parser": ">=2"
+    "@tabnas/jsonic": "^0.2.0",
+    "@tabnas/parser": "^0.2.0"
   },
   "engines": {
     "node": ">=24"
