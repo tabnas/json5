@@ -34,6 +34,11 @@ import (
 // Version is the semantic version of this plugin.
 const Version = "0.2.0"
 
+// requireValueMark is the decoration key under which the plugin records
+// the resolved requireValue option on the instance, so the Parse wrapper
+// can apply the empty-input guard (see Parse).
+const requireValueMark = "json5$requireValue"
+
 // JSON5 WhiteSpace characters: HT, VT, FF, SP, NBSP, BOM, plus the
 // Unicode Zs category chars the spec enumerates.
 const json5WhiteSpace = "\t\v\f \u00A0\uFEFF" +
@@ -537,7 +542,53 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 		})
 	}
 
+	// Record the resolved requireValue flag on the instance so Parse can
+	// apply the empty-input guard. The TS plugin wraps parser.start for
+	// this; the Go engine handles an empty source before any pluggable
+	// hook (custom Parser.Start included), so the guard lives in the
+	// package-level Parse wrapper instead.
+	j.Decorate(requireValueMark, requireValue)
+
 	return nil
+}
+
+// Parse parses a JSON5 source string with a Json5-configured instance.
+// It is the Go counterpart of the TS plugin's wrapped `parser.start`:
+// when the requireValue option is set (the default) and the source is
+// empty, it returns a *jsonic.JsonicError with code "json5_empty"
+// ("JSON5 input must contain a value"), exactly as the TS plugin
+// throws. All other input delegates to j.Parse.
+//
+// The guard cannot be installed on j.Parse itself: the Go engine
+// short-circuits an empty source before any pluggable hook runs (a
+// custom Options.Parser.Start is only invoked for non-empty input), so
+// with requireValue a direct j.Parse("") still fails, but with the
+// engine's generic "unexpected" error rather than "json5_empty".
+func Parse(j *jsonic.Jsonic, src string) (any, error) {
+	if src == "" {
+		if rv, ok := j.Decoration(requireValueMark).(bool); ok && rv {
+			return nil, json5EmptyError(j)
+		}
+	}
+	return j.Parse(src)
+}
+
+// json5EmptyError builds the json5_empty error from the message and hint
+// templates the grammar registers on the instance config.
+func json5EmptyError(j *jsonic.Jsonic) error {
+	e := &jsonic.JsonicError{
+		Code:   "json5_empty",
+		Detail: "JSON5 input must contain a value",
+		Row:    1,
+		Col:    1,
+	}
+	if cfg := j.Config(); cfg != nil {
+		if msg := cfg.ErrorMessages[e.Code]; msg != "" {
+			e.Detail = msg
+		}
+		e.Hint = cfg.Hints[e.Code]
+	}
+	return e
 }
 
 // filterTinFromAlts removes `tin` from the Tin-set at each slot of every

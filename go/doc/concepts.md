@@ -159,7 +159,7 @@ concern API shape, host-language value types, and one error code.
 | Plugin signature | `(engine, options) => void` | `func(j *tabnasjsonic.Jsonic, opts map[string]any) error` |
 | Options value | partial `Json5Options` object | `map[string]any` (merged over `Defaults()`) |
 | Defaults | `Json5.defaults` (property) | `tabnasjson5.Defaults()` (function returning a fresh map) |
-| Parse entry | `instance.parse(src)` (throws) | `j.Parse(src)` returns `(any, error)`, never panics |
+| Parse entry | `instance.parse(src)` (throws) | `j.Parse(src)` returns `(any, error)`, never panics; `tabnasjson5.Parse(j, src)` adds the TS `requireValue` empty-input guard |
 | Version constant | — | `tabnasjson5.Version` |
 
 ### Value types
@@ -181,9 +181,15 @@ differ where the languages differ:
 ### Errors
 
 Both raise errors at the same row/column for the same invalid inputs.
-The one accepted difference is empty input under the default
-`requireValue: true`: the TS port throws with code `json5_empty`, while
-the Go port returns an `*tabnasjsonic.JsonicError` with code `unexpected`.
-Both still report an error; only the `Code` differs. Errors in Go are
-returned (never thrown/panicked); inspect them with `errors.As(err,
-&je)` where `je` is `*tabnasjsonic.JsonicError`.
+Errors in Go are returned (never thrown/panicked); inspect them with
+`errors.As(err, &je)` where `je` is `*tabnasjsonic.JsonicError`.
+
+Empty input under the default `requireValue: true` deserves a note. The
+TS plugin wraps `parser.start` so `parse('')` throws with code
+`json5_empty`. The Go engine handles an empty source before any
+pluggable hook runs (a custom `Options.Parser.Start` is only invoked
+for non-empty input), so the guard cannot be installed on `j.Parse`
+itself; it lives in the package-level `tabnasjson5.Parse(j, src)`
+wrapper, which returns the same `json5_empty` error as TS. A direct
+`j.Parse("")` still fails, but with the engine's generic `unexpected`
+empty-input error.

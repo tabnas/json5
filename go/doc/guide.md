@@ -151,8 +151,9 @@ if errors.As(err, &je) {
 `err.Error()` is a formatted, multi-line report with a source extract and
 a caret — show that to a user. The fields (`Code`, `Row`, `Col`, `Hint`)
 are for your code to branch on. (Empty input under the default
-`requireValue: true` also returns an error; see
-[concepts](concepts.md#differences-from-the-ts-version) for its code.)
+`requireValue: true` also returns an error — use `tabnasjson5.Parse(j,
+src)` to get the TS plugin's `json5_empty` code for it; see
+[concepts](concepts.md#differences-from-the-ts-version).)
 
 ## Reproduce strict JSON5
 

@@ -29,7 +29,7 @@ TypeScript (canonical) and a Go port.
 | Path | What it is |
 |---|---|
 | [`ts/`](ts/) | **Canonical** TypeScript implementation — the `@tabnas/json5` package. Plugin in [`ts/src/json5.ts`](ts/src/json5.ts). Imports the engine as `@tabnas/parser` and the base grammar as `@tabnas/jsonic`. |
-| [`go/`](go/) | Go port — `github.com/tabnas/json5/go`. Plugin in [`go/json5.go`](go/json5.go) (exports `Json5`, `Defaults`, `Version`). Depends on `github.com/tabnas/jsonic/go` via a `replace` directive (sibling checkout). |
+| [`go/`](go/) | Go port — `github.com/tabnas/json5/go`. Plugin in [`go/json5.go`](go/json5.go) (exports `Json5`, `Defaults`, `Parse`, `Version`). Depends on `github.com/tabnas/jsonic/go` via a `replace` directive (sibling checkout). |
 | [`ts/json5-grammar.jsonic`](ts/json5-grammar.jsonic) | The grammar, **source of truth for both runtimes**. Embedded verbatim into both source files. |
 | [`ts/embed-grammar.js`](ts/embed-grammar.js) | Embeds the grammar into `ts/src/json5.ts` AND `go/json5.go`. |
 | [`test/json5-tests/`](test/json5-tests/) | Vendored official JSON5 conformance corpus, run by both suites. |
@@ -178,7 +178,9 @@ code under the `infinity` option (default on).
   not a valid JSON5 IdentifierName (`isValidIdentifierName`).
 - When `requireValue` is set (default), `val` loses its `#ZZ jsonic` alt
   and the parser's `start` is wrapped so an empty/whitespace-only source
-  errors with code `json5_empty` / `json5_no_value`.
+  errors with code `json5_empty` / `json5_no_value`. (Go: the engine
+  handles an empty source before any pluggable hook, so the guard lives
+  in the package-level `tabnasjson5.Parse(j, src)` wrapper instead.)
 - `textCheck` (wired as `text.check`) halts lexing on unquoted text that
   is neither a valid IdentifierName start nor a registered value keyword/
   regex, raising "unexpected character".

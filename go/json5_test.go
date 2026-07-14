@@ -1,8 +1,10 @@
 package tabnasjson5
 
 import (
+	"errors"
 	"math"
 	"reflect"
+	"strings"
 	"testing"
 
 	jsonic "github.com/tabnas/jsonic/go"
@@ -205,6 +207,41 @@ func TestRejectsNonJSON5(t *testing.T) {
 		if v, err := j.Parse(src); err == nil {
 			t.Errorf("Parse(%q) expected error, got %#v", src, v)
 		}
+	}
+}
+
+// Mirrors ts test 'require-value': empty input under the default
+// requireValue option fails with the json5_empty error (message matches
+// /JSON5/, as in TS), while requireValue=false lets empty input parse to
+// nil (TS: undefined).
+func TestRequireValue(t *testing.T) {
+	j := parser(t)
+	_, err := Parse(j, "")
+	if err == nil {
+		t.Fatal(`Parse(j, "") expected error, got nil`)
+	}
+	if !strings.Contains(err.Error(), "JSON5") {
+		t.Errorf(`Parse(j, "") error %q does not match /JSON5/`, err.Error())
+	}
+	var je *jsonic.JsonicError
+	if !errors.As(err, &je) || je.Code != "json5_empty" {
+		t.Errorf(`Parse(j, "") error = %#v, want *JsonicError with Code "json5_empty"`, err)
+	}
+
+	// A direct j.Parse("") also fails (lex.empty is off), though with the
+	// engine's generic empty-input error; see the Parse doc comment.
+	if _, err := j.Parse(""); err == nil {
+		t.Error(`j.Parse("") expected error, got nil`)
+	}
+
+	// Allow empty input (returns nil).
+	jopt := parser(t, map[string]any{"requireValue": false})
+	v, err := Parse(jopt, "")
+	if err != nil {
+		t.Fatalf(`Parse(jopt, "") error: %v`, err)
+	}
+	if v != nil {
+		t.Errorf(`Parse(jopt, "") = %#v, want nil`, v)
 	}
 }
 

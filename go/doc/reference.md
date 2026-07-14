@@ -28,10 +28,14 @@ onto a `*tabnasjsonic.Jsonic` instance with `UseDefaults`.
 |---|---|---|
 | `Json5` | `func(j *tabnasjsonic.Jsonic, opts map[string]any) error` | The plugin function. Pass it to `UseDefaults`. |
 | `Defaults()` | `func() map[string]any` | Returns a fresh copy of the default option map (strict JSON5). |
+| `Parse(j, src)` | `func(j *tabnasjsonic.Jsonic, src string) (any, error)` | Parse with the `requireValue` empty-input guard (TS wraps `parser.start` for this): an empty source errors with code `json5_empty`. All other input delegates to `j.Parse(src)`. |
 | `Version` | `const string` | The plugin's semantic version. |
 
-There is no standalone parse function in this package — parsing is done
-through the jsonic instance you install the plugin on.
+Parsing is done through the jsonic instance you install the plugin on
+(`j.Parse(src)`); use `tabnasjson5.Parse(j, src)` when you need the TS
+plugin's `json5_empty` error for empty input (the engine handles an
+empty source before any pluggable hook, so `j.Parse("")` reports the
+generic `unexpected` error instead).
 
 ## API
 
@@ -182,8 +186,9 @@ if errors.As(err, &je) {
 | `Error()` | method | Formatted multi-line report with a source extract and caret. |
 
 A bare word like `foo` reports `Code == "unexpected"`. Empty input under
-the default `requireValue: true` returns an error too — note its code
-differs from the TS port; see
+the default `requireValue: true` returns an error too: `Code ==
+"json5_empty"` via `tabnasjson5.Parse(j, "")`, or the engine's generic
+`Code == "unexpected"` via a direct `j.Parse("")`; see
 [concepts](concepts.md#differences-from-the-ts-version).
 
 ## Grammar
