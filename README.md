@@ -1,5 +1,12 @@
 # @tabnas/json5
 
+<!-- tabnas-badges -->
+[![npm](https://tabnas.github.io/status/badges/json5-npm.svg)](https://www.npmjs.com/package/@tabnas/json5)
+[![CI](https://github.com/tabnas/json5/actions/workflows/ci.yml/badge.svg)](https://github.com/tabnas/json5/actions/workflows/ci.yml)
+[![go](https://tabnas.github.io/status/badges/json5-go.svg)](https://pkg.go.dev/github.com/tabnas/json5/go)
+[![tabnas standard](https://tabnas.github.io/status/badges/json5-standard.svg)](https://tabnas.github.io/status/)
+<!-- /tabnas-badges -->
+
 A [Tabnas](https://github.com/tabnas/parser) /
 [Jsonic](https://github.com/tabnas/jsonic) grammar plugin that parses
 [JSON5](https://json5.org) — JSON plus comments, unquoted keys, trailing
