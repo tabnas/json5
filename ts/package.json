@@ -1,6 +1,6 @@
 {
   "name": "@tabnas/json5",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "This plugin configures the [Tabnas](https://github.com/tabnas/json5) JSON parser to parse JSON5 syntax.",
   "main": "dist/json5.js",
   "type": "commonjs",
@@ -16,7 +16,8 @@
   "author": "Richard Rodger (http://richardrodger.com)",
   "repository": {
     "type": "git",
-    "url": "git://github.com/tabnas/json5.git"
+    "url": "git://github.com/tabnas/json5.git",
+    "directory": "ts"
   },
   "scripts": {
     "test": "node --enable-source-maps --test \"dist-test/*.test.js\"",

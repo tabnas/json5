@@ -32,7 +32,7 @@ import (
 )
 
 // Version is the semantic version of this plugin.
-const Version = "0.2.0"
+const Version = "0.2.1"
 
 // requireValueMark is the decoration key under which the plugin records
 // the resolved requireValue option on the instance, so the Parse wrapper
