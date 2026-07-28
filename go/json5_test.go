@@ -30,6 +30,37 @@ func parse(t *testing.T, j *jsonic.Jsonic, src string) any {
 	return v
 }
 
+// deorder recursively rewrites parsed *jsonic.OrderedMap object nodes into
+// plain map[string]any, dropping the (now source-ordered) key order so a
+// value-only reflect.DeepEqual against a plain-map expectation still passes.
+// Only the ordered wrapper is neutralized; every value, key, and nested
+// structure is preserved. Tests that assert key ORDER should compare the
+// OrderedMap (or its MarshalJSON output) directly instead of using this.
+func deorder(v any) any {
+	switch node := v.(type) {
+	case *jsonic.OrderedMap:
+		m := make(map[string]any, len(node.Keys))
+		for _, k := range node.Keys {
+			m[k] = deorder(node.Vals[k])
+		}
+		return m
+	case map[string]any:
+		m := make(map[string]any, len(node))
+		for k, elem := range node {
+			m[k] = deorder(elem)
+		}
+		return m
+	case []any:
+		out := make([]any, len(node))
+		for i, elem := range node {
+			out[i] = deorder(elem)
+		}
+		return out
+	default:
+		return v
+	}
+}
+
 func eq(t *testing.T, got, want any, src string) {
 	t.Helper()
 	if fg, ok := got.(float64); ok {
@@ -37,6 +68,7 @@ func eq(t *testing.T, got, want any, src string) {
 			return
 		}
 	}
+	got, want = deorder(got), deorder(want)
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Parse(%q) = %#v, want %#v", src, got, want)
 	}
@@ -295,7 +327,7 @@ No \\n's!",
 		"andIn":               []any{"arrays"},
 		"backwardsCompatible": "with JSON",
 	}
-	if !reflect.DeepEqual(got, want) {
+	if !reflect.DeepEqual(deorder(got), deorder(want)) {
 		t.Errorf("spec example mismatch:\n got: %#v\nwant: %#v", got, want)
 	}
 }

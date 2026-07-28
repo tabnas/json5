@@ -206,6 +206,7 @@ const grammarText = `# JSON5 Grammar Definition
   }
 }
 `
+
 // --- END EMBEDDED json5-grammar.jsonic ---
 
 // Defaults returns a fresh copy of the default plugin options.
@@ -245,6 +246,38 @@ func optBool(opts map[string]any, key string, fallback bool) bool {
 		}
 	}
 	return fallback
+}
+
+// plainMapNode recursively rewrites any *jsonic.OrderedMap object node
+// into a plain map[string]any (dropping the now-tracked insertion order)
+// and copies []any elements, leaving all other values untouched. A parsed
+// jsonic object is an ordered *OrderedMap, but this plugin's grammar tree
+// is configuration whose key order is meaningless, and both the patching
+// code below and the engine's map-shaped consumers (MapToOptions,
+// ResolveFuncRefs) assert on plain map[string]any deeply — so flatten it.
+func plainMapNode(v any) any {
+	switch node := v.(type) {
+	case *jsonic.OrderedMap:
+		m := make(map[string]any, len(node.Keys))
+		for _, k := range node.Keys {
+			m[k] = plainMapNode(node.Vals[k])
+		}
+		return m
+	case map[string]any:
+		m := make(map[string]any, len(node))
+		for k, elem := range node {
+			m[k] = plainMapNode(elem)
+		}
+		return m
+	case []any:
+		out := make([]any, len(node))
+		for i, elem := range node {
+			out[i] = plainMapNode(elem)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // isJS5IdentifierStart reports whether r may begin a JSON5 IdentifierName.
@@ -383,7 +416,13 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 	if err != nil {
 		return err
 	}
-	gmap, ok := parsed.(map[string]any)
+	// A jsonic parse now yields insertion-ordered *OrderedMap object nodes.
+	// The embedded grammar is configuration — its key order carries no
+	// meaning — and the rest of this function (plus the engine's
+	// MapToOptions / ResolveFuncRefs consumers) assert deeply on plain
+	// map[string]any. Flatten the parsed tree back to plain maps so all of
+	// that keeps working unchanged.
+	gmap, ok := plainMapNode(parsed).(map[string]any)
 	if !ok {
 		return nil
 	}
