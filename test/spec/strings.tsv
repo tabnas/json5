@@ -1,0 +1,13 @@
+input	expected	opts
+"hello"	"hello"
+'hello'	"hello"
+"he said \\"hi\\""	"he said \"hi\""
+'he said \\'hi\\''	"he said 'hi'"
+"a\\tb"	"a\tb"
+"a\\nb"	"a\nb"
+"a\\u0041b"	"aAb"
+"a\\x41b"	"aAb"
+"\\0"	"\u0000"
+"line1\\\nline2"	"line1line2"
+`backtick`	ERROR:unexpected
+`backtick`	"backtick"	{"backtickString":true}

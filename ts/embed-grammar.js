@@ -46,9 +46,12 @@ function goEscape(src) {
   if (parts.length === 1) return '`' + src + '`'
   return parts.map((p) => '`' + p + '`').join(' + "`" + ')
 }
+// The trailing newline leaves a blank line before END, which keeps the
+// result gofmt-clean (gofmt wants a blank line between the const
+// declaration and the trailing comment).
 embed(
   path.join(__dirname, '..', 'go', 'json5.go'),
-  'const grammarText = ' + goEscape(grammar),
+  'const grammarText = ' + goEscape(grammar) + '\n',
 )
 
 console.log('Embedded grammar into src/json5.ts and go/json5.go')
