@@ -1,0 +1,5 @@
+input	expected	opts
+{foo:1}	{"foo":1}
+{"foo":1}	{"foo":1}
+{'foo':1}	{"foo":1}
+{$id:1, _n:2, a1:3}	{"$id":1,"_n":2,"a1":3}

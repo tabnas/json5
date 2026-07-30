@@ -1,0 +1,8 @@
+input	expected	opts
+0o17	15	{"octal":true,"binary":true,"numberSeparator":true}
+0b101	5	{"octal":true,"binary":true,"numberSeparator":true}
+1_000	1000	{"octal":true,"binary":true,"numberSeparator":true}
+0x1F	ERROR:unexpected	{"hex":false}
+	ERROR:JSON5
+	null	{"requireValue":false}
+foo	"foo"	{"strictValue":false}

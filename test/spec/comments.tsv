@@ -1,0 +1,8 @@
+input	expected	opts
+// hello\n42	42
+/* block */ 42	42
+{ a: 1, /* mid */ b: 2 }	{"a":1,"b":2}
+[/* a */ 1, /* b */ 2]	[1,2]
+/* multi\nline\ncomment */ [1,2]	[1,2]
+# a comment\n42	ERROR:unexpected
+# hello\n42	42	{"hashComment":true}
