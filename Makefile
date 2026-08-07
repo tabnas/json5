@@ -33,8 +33,15 @@ publish-ts: test-ts
 build-go:
 	cd go && go build ./...
 
-test-go:
+# The conformance corpus is fetched, never committed. `go test` has no
+# pretest hook (the TS side uses npm's), so fetch here first. The Go suite
+# also FAILS LOUDLY if the corpus is missing — it must never skip.
+test-go: fetch-suite
 	cd go && go test -v ./...
+
+.PHONY: fetch-suite
+fetch-suite:
+	node scripts/fetch-json5-tests.js
 
 clean-go:
 	cd go && go clean

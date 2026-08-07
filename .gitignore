@@ -31,3 +31,9 @@ package-lock.json
 yarn.lock
 
 
+
+# Third-party conformance corpora are FETCHED, never committed.
+# scripts/fetch-json5-tests.sh clones json5/json5-tests at a pinned SHA
+# and generates the expected-value manifest.
+test/json5-tests/
+test/json5-tests-expected.json

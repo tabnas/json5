@@ -14,8 +14,29 @@ commas, single quotes, hex / `Infinity` / `NaN` numbers, leading- and
 trailing-decimal numbers, explicit `+` signs, and string line
 continuations.
 
-Both ports share one grammar file and pass the full official
-[`json5/json5-tests`](https://github.com/json5/json5-tests) corpus.
+Both ports share one grammar file and are measured against the official
+[`json5/json5-tests`](https://github.com/json5/json5-tests) corpus, which
+is fetched at a pinned commit by `scripts/fetch-json5-tests.sh` (it is
+never vendored into this repository).
+
+**Conformance is not yet complete.** Measured 2026-08-07 against
+json5-tests `ceb24d4`, asserting parsed VALUES and not merely
+parse-vs-error, identically in TypeScript and Go:
+
+| | TypeScript | Go |
+|---|---|---|
+| valid fixtures parsed with the correct value | 82 / 83 | 82 / 83 |
+| invalid fixtures rejected | 31 / 31 | 31 / 31 |
+
+Known gaps, both covered by currently-failing tests:
+
+- `\uXXXX` escapes in an **unquoted** IdentifierName key are not decoded
+  (the source `{ sig\u03A3ma: 1 }` yields the 11-character key
+  `sig\u03A3ma` instead of the 6-character key `sigΣma`).
+- Base-grammar **leniency leaks through**: an unterminated document is
+  silently auto-closed (`{a:1` parses as `{a:1}`), and in TypeScript
+  content after a complete top-level value is silently discarded
+  (`{a:1} trailing` parses as `{a:1}`). Go rejects the latter.
 
 ## Install
 
@@ -90,7 +111,9 @@ An ASCII version is in [`ts/doc/grammar.txt`](ts/doc/grammar.txt).
 MIT. Copyright (c) 2021-2026 Richard Rodger and other contributors;
 see [LICENSE](LICENSE).
 
-The vendored JSON5 test corpus under `test/json5-tests` is redistributed
-under the MIT License from the upstream
-[json5/json5-tests](https://github.com/json5/json5-tests) project; see
-`test/json5-tests/LICENSE.md`.
+The JSON5 conformance corpus is **not** redistributed by this project.
+`scripts/fetch-json5-tests.sh` clones
+[json5/json5-tests](https://github.com/json5/json5-tests) at a pinned
+commit into `test/json5-tests/`, which is `.gitignore`d; that corpus is
+MIT-licensed by its own authors (see `test/json5-tests/LICENSE.md` in the
+fetched checkout).

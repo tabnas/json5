@@ -20,6 +20,8 @@
     "directory": "ts"
   },
   "scripts": {
+    "fetch-suite": "node ../scripts/fetch-json5-tests.js",
+    "pretest": "npm run fetch-suite",
     "test": "node --enable-source-maps --test \"dist-test/*.test.js\"",
     "test-some": "node --enable-source-maps --test-name-pattern=\"$npm_config_pattern\" --test \"dist-test/*.test.js\"",
     "test-watch": "node --test --watch dist-test/json5.test.js",
