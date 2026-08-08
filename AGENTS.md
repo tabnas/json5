@@ -30,7 +30,7 @@ TypeScript (canonical) and a Go port.
 | Path | What it is |
 |---|---|
 | [`ts/`](ts/) | **Canonical** TypeScript implementation — the `@tabnas/json5` package. Plugin in [`ts/src/json5.ts`](ts/src/json5.ts). Imports the engine as `@tabnas/parser` and the base grammar as `@tabnas/jsonic`. |
-| [`go/`](go/) | Go port — `github.com/tabnas/json5/go`. Plugin in [`go/json5.go`](go/json5.go) (exports `Json5`, `Defaults`, `Parse`, `Version`). Depends on `github.com/tabnas/jsonic/go` via a `replace` directive (sibling checkout). |
+| [`go/`](go/) | Go port — `github.com/tabnas/json5/go`. Plugin in [`go/json5.go`](go/json5.go) (exports `Json5`, `Defaults`, `Parse`, `VERSION`). Depends on `github.com/tabnas/jsonic/go` via a `replace` directive (sibling checkout). |
 | [`ts/json5-grammar.jsonic`](ts/json5-grammar.jsonic) | The grammar, **source of truth for both runtimes**. Embedded verbatim into both source files. |
 | [`ts/embed-grammar.js`](ts/embed-grammar.js) | Embeds the grammar into `ts/src/json5.ts` AND `go/json5.go`. |
 | [`test/json5-tests/`](test/json5-tests/) | Vendored official JSON5 conformance corpus, run by both suites. |
@@ -319,9 +319,16 @@ after you edit them. `make test-go` passes `-count=1` for this reason.
 
 The repo root [`Makefile`](Makefile) wraps both: `make build|test` run
 the TS and Go halves; `make publish-go V=x.y.z` injects `V` into the
-`const Version` in `go/json5.go` and tags `go/vX.Y.Z`;
+`const VERSION` in `go/json5.go` and tags `go/vX.Y.Z`;
 `make tags-go` lists Go tags. The TS package version is declared in
 `ts/package.json`.
+
+Both runtimes bake in a `VERSION` constant (`const VERSION` in
+`go/json5.go`, the exported `VERSION` in `ts/src/json5.ts`) and BOTH must
+equal `ts/package.json` "version" at all times. Nothing keeps them in sync
+automatically — the release orchestrator (`admin/publish.sh`) rewrites them,
+and `go/version_test.go` / `ts/test/version.test.ts` fail the build if
+either drifts. If you bump one by hand, bump all three.
 
 ## Tests in this repo
 
@@ -331,6 +338,10 @@ the TS and Go halves; `make publish-go V=x.y.z` injects `V` into the
   other).
 - `ts/test/suite.test.ts` / `go/suite_test.go` — the vendored JSON5
   conformance corpus runners.
+- `ts/test/version.test.ts` / `go/version_test.go` — the version-drift
+  guards: the baked-in `VERSION` in each runtime must equal
+  `ts/package.json` "version". They FAIL (never skip) if `package.json`
+  cannot be read.
 - `ts/test/doc-examples.test.ts` — extracts fenced `js`/`javascript`
   blocks containing `// =>` assertions from `README.md`, `ts/README.md`,
   `go/README.md`, and `ts/doc/*.md`, and runs them; keep doc examples

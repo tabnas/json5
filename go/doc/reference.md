@@ -29,7 +29,7 @@ onto a `*tabnasjsonic.Jsonic` instance with `UseDefaults`.
 | `Json5` | `func(j *tabnasjsonic.Jsonic, opts map[string]any) error` | The plugin function. Pass it to `UseDefaults`. |
 | `Defaults()` | `func() map[string]any` | Returns a fresh copy of the default option map (strict JSON5). |
 | `Parse(j, src)` | `func(j *tabnasjsonic.Jsonic, src string) (any, error)` | Parse with the `requireValue` empty-input guard (TS wraps `parser.start` for this): an empty source errors with code `json5_empty`. All other input delegates to `j.Parse(src)`. |
-| `Version` | `const string` | The plugin's semantic version. |
+| `VERSION` | `const string` | The plugin's semantic version. Always equal to `ts/package.json` "version" — `TestVersionMatchesPackageJSON` fails the build if they drift. |
 
 Parsing is done through the jsonic instance you install the plugin on
 (`j.Parse(src)`); use `tabnasjson5.Parse(j, src)` when you need the TS

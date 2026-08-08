@@ -17,15 +17,16 @@ the same engine first. Both are declared as peer dependencies.
 
 ## Exports
 
-The module exports exactly two names:
+The module exports exactly three names:
 
 | Export | Kind | Description |
 |---|---|---|
 | `Json5` | `Plugin` | The plugin function. Pass it to `engine.use()`. Carries `Json5.defaults` (the default option values). |
+| `VERSION` | `string` | This package's semantic version. Always equal to `package.json` "version" — the version test fails the build if they drift. Mirrored by `VERSION` in the Go port. |
 | `Json5Options` | type | The TypeScript type of the options object (see [Options](#options)). |
 
 ```ts
-import { Json5 } from '@tabnas/json5'
+import { Json5, VERSION } from '@tabnas/json5'
 import type { Json5Options } from '@tabnas/json5'
 ```
 
