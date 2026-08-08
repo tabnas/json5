@@ -581,7 +581,7 @@ Json5.defaults = {
 // VERSION is this package's version. It MUST equal package.json "version":
 // the release orchestrator rewrites both, and the version test fails the
 // build if they drift. Mirrors `const VERSION` in go/json5.go.
-const VERSION = '0.4.3'
+const VERSION = '0.5.0'
 
 export { VERSION, Json5 }
 
