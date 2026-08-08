@@ -193,7 +193,7 @@ concern API shape, host-language value types, and one error code.
 | Options value | partial `Json5Options` object | `map[string]any` (merged over `Defaults()`) |
 | Defaults | `Json5.defaults` (property) | `tabnasjson5.Defaults()` (function returning a fresh map) |
 | Parse entry | `instance.parse(src)` (throws) | `j.Parse(src)` returns `(any, error)`, never panics; `tabnasjson5.Parse(j, src)` adds the TS `requireValue` empty-input guard |
-| Version constant | — | `tabnasjson5.Version` |
+| Version constant | `VERSION` | `tabnasjson5.VERSION` |
 
 ### Value types
 
