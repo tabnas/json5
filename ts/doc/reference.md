@@ -127,8 +127,11 @@ j.parse('42')   // => 42
 
 Keys may be double-quoted, single-quoted, or unquoted ECMAScript
 identifier names (including `$`, `_`, and reserved words like `while`).
-Numeric keys (`{10:1}`) are rejected. Trailing commas are allowed.
-Duplicate keys take the last value.
+An identifier key may spell a character as a `\uXXXX` escape, and the
+key is the DECODED text. Numeric keys (`{10:1}`) are rejected, as is an
+escape that would produce a character illegal in an identifier. Trailing
+commas are allowed. Duplicate keys take the last value. Every object
+must be closed — `{a:1` is an error, not `{a:1}`.
 
 ```js
 const { Tabnas } = require('@tabnas/parser')
@@ -139,6 +142,7 @@ const j = new Tabnas().use(jsonic).use(Json5)
 j.parse('{a:1, "b":2, \'c\':3,}')   // => { a: 1, b: 2, c: 3 }
 j.parse('{$id:1, _n:2, a1:3}')      // => { $id: 1, _n: 2, a1: 3 }
 j.parse('{ a: true, a: false }')    // => { a: false }
+j.parse('{ sig\\u03A3ma: 1 }')       // => { 'sigΣma': 1 }
 ```
 
 ### Arrays
@@ -160,7 +164,14 @@ j.parse('[[1,2],[3,4]]') // => [[1, 2], [3, 4]]
 
 Single- or double-quoted, with ES5.1 escapes (`\n`, `\t`, `A`,
 `\x41`, `\0`, …) plus line continuations: a backslash immediately
-followed by a line terminator is removed, so the string spans lines.
+followed by a line terminator is removed, so the string spans lines. The
+continuation is part of the string grammar only — a backslash before a
+newline anywhere else is an error, and does not continue a `//` comment.
+
+ES5.1 also *restricts* the escape set: a decimal digit is an escape
+character, not a `NonEscapeCharacter`, so `"\1"` … `"\9"` and `"\0"`
+followed by a digit are rejected; so is the ES2015 code-point form
+`"\u{41}"`.
 
 ```js
 const { Tabnas } = require('@tabnas/parser')
@@ -173,6 +184,9 @@ j.parse('"a\\u0041b"')   // => 'aAb'
 j.parse('"a\\x41b"')     // => 'aAb'
 j.parse('"line1\\\nline2"') // => 'line1line2'
 ```
+
+A literal control character inside a string (a raw tab) is accepted by
+the JSON5 grammar but rejected by this implementation — use `"\t"`.
 
 ### Numbers
 

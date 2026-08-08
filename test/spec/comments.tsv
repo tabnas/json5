@@ -6,3 +6,8 @@ input	expected	opts
 /* multi\nline\ncomment */ [1,2]	[1,2]
 # a comment\n42	ERROR:unexpected
 # hello\n42	42	{"hashComment":true}
+# A backslash does NOT continue a line comment: the comment ends at the
+# line terminator and the next line is still parsed.
+// c\\\n1	1
+[1] // c\\\n2	ERROR
+/* x \\\n */ 1	1

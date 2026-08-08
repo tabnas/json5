@@ -44,8 +44,9 @@ describe('json5-tests suite', () => {
       const src = readFileSync(file, 'utf8')
       const shouldParse = /\.(json|json5)$/.test(file)
       let parsed = false
+      let val: any = undefined
       try {
-        j.parse(src)
+        val = j.parse(src)
         parsed = true
       } catch {
         parsed = false
@@ -57,6 +58,27 @@ describe('json5-tests suite', () => {
           ? `expected to parse: ${name}`
           : `expected parse error: ${name}`,
       )
+
+      // Every JSON document is a JSON5 document with the same VALUE, so
+      // JSON.parse is an oracle for the .json fixtures — parsing without
+      // error is not enough, the result has to be right too. (One upstream
+      // fixture, comments/irregular-block-comment.json, is mislabelled: it
+      // holds a JSON5 block comment, so it is not valid JSON. Apply the
+      // oracle only where it really applies.) Both sides are re-parsed from
+      // their JSON rendering so -0 and null-prototype objects compare equal.
+      if (parsed && file.endsWith('.json')) {
+        let want: any
+        try {
+          want = JSON.parse(JSON.stringify(JSON.parse(src)))
+        } catch {
+          return
+        }
+        assert.deepStrictEqual(
+          JSON.parse(JSON.stringify(val)),
+          want,
+          `value mismatch: ${name}`,
+        )
+      }
     })
   }
 })

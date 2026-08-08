@@ -72,33 +72,52 @@ jsonic is deliberately more permissive than JSON5. The plugin makes it
 - **Identifier-name keys.** An unquoted key must be a valid ECMAScript
   5.1 `IdentifierName`. A `pair` after-open validator checks each
   unquoted key's source and rejects ones that are not — this lets
-  `{while:true}` through but stops `{10:1}` and symbol keys.
+  `{while:true}` through but stops `{10:1}` and symbol keys. The same
+  validator *decodes* `\uXXXX` escapes in the key, so `{sig\u03A3ma:1}`
+  has the key `sigΣma`; an escape that would produce a character illegal
+  in an identifier (`{\u0030:1}`, `{a\u002Db:1}`) is rejected rather than
+  smuggled through.
+- **No end-of-source auto-close.** jsonic closes any rule still open when
+  the source runs out, so bare jsonic reads `{a:1` as `{"a":1}`. JSON5
+  requires the closing brace, so the grammar sets `rule.finish: false`
+  and an unterminated map or list is an `end_of_source` error.
 - **Stricter numbers.** Octal, binary, and digit separators are off by
   default, and a regex exclusion (`^[+-]?0[0-9]`) rejects JS-style
   leading-zero integers like `010` and `080`.
 
 ## The lexer-check hooks
 
-Two things JSON5 needs cannot be expressed as plain lexer options, so the
-plugin installs **lex-check** hooks — `tabnasjsonic.LexCheck` functions the
-lexer calls at each step:
+Three things JSON5 needs cannot be expressed as plain lexer options, so
+the plugin installs **lex-check** hooks — `tabnasjsonic.LexCheck` functions
+the lexer calls at each step:
 
 - **String line continuations.** A backslash immediately followed by a
   line terminator must produce *nothing*, letting a string span lines.
   The escape map cannot encode this (the lexer discards any escape whose
-  replacement is empty), so a `fixedCheck` hook preprocesses the whole
-  source once per parse via a `strings.Replacer`, stripping `\` +
-  line-terminator sequences before lexing. This is why
-  `"line1\<newline>line2"` parses to `"line1line2"`.
+  replacement is empty), so a `fixedCheck` hook rewrites the source once
+  per parse, stripping `\` + line-terminator sequences before lexing.
+  This is why `"line1\<newline>line2"` parses to `"line1line2"`. The
+  rewrite is context-aware (`stripLineContinuations`): a
+  `LineContinuation` belongs to the *string* grammar, so the scan copies
+  comments and unquoted text through untouched. A blanket replacer would
+  extend a `//` comment over the next line, and would quietly accept
+  `[1,\<newline>2]`.
 - **Identifier-aware text rejection.** A `textCheck` hook stops the lexer
   at any unquoted run that neither begins a valid JSON5 `IdentifierStart`
   nor matches a registered value keyword / regex. This produces a clean
   "unexpected character" at the right column instead of letting jsonic
   swallow stray text.
+- **ES5.1 escape restriction.** The engine's string lexer is deliberately
+  permissive: an unknown escape keeps its character, and `\u{...}` is
+  accepted. JSON5 inherits ES5.1's stricter rule, where a `DecimalDigit`
+  is an `EscapeCharacter` and the code-point form does not exist, so a
+  `stringCheck` hook rejects `\1`..`\9`, `\0` followed by a digit, and
+  `\u{XXXX}`. (`\xHH` and `\uXXXX` stay — JSON5 has both.)
 
 In the Go port the hooks are also wired directly onto the resolved config
-(`cfg.FixedCheck`, `cfg.TextCheck`) because the option-map path does not
-forward `check` through to the resolved options struct in this version.
+(`cfg.FixedCheck`, `cfg.TextCheck`, `cfg.StringCheck`) because the
+option-map path does not forward `check` through to the resolved options
+struct in this version.
 
 ## Two regex value defs
 
@@ -133,7 +152,12 @@ gated by the `infinity` option.
 | `{,}` | rejected | Leading-comma object alt removed from `pair`. |
 | `1,2,3` | rejected | No implicit top-level list. |
 | `5.e4` | accepted → `50000` | Regex value def. |
+| `05.e4` | rejected | The regex value def excludes a leading zero too. |
 | `0X1f` | accepted → `31` | Uppercase-hex regex value def. |
+| `{a:1` | rejected | `rule.finish: false` — every brace must be closed. |
+| `{sig\u03A3ma:1}` | accepted → `{sigΣma:1}` | Identifier escapes are decoded. |
+| `"\1"` | rejected | A `DecimalDigit` is not a `NonEscapeCharacter`. |
+| `"\u{41}"` | rejected | The code-point escape is ES2015, not ES5.1. |
 
 ## Compliance
 
@@ -141,8 +165,17 @@ Both ports run the full official
 [`json5/json5-tests`](https://github.com/json5/json5-tests) corpus,
 vendored under `test/json5-tests`. Fixture extensions encode the
 expectation: `.json`/`.json5` must parse, `.js` (valid ES5 but not
-JSON5) and `.txt` (invalid everywhere) must error. The Go suite
-(`suite_test.go`) and the TS suite agree on every fixture.
+JSON5) and `.txt` (invalid everywhere) must error. Both suites also
+compare the parsed VALUE of each `.json` fixture against the host
+language's own JSON parser (`encoding/json` here), so a fixture cannot
+pass by parsing to the wrong thing. The Go suite (`suite_test.go`) and
+the TS suite agree on every fixture.
+
+One known deviation from the JSON5 grammar remains in BOTH ports: a
+literal control character inside a string (a raw tab, for example) is a
+`JSON5SourceCharacter` and should be accepted, but the engine's string
+lexer rejects any character below `U+0020` outright. Escaped forms
+(`"\t"`) are unaffected.
 
 ## Differences from the TS version
 
@@ -177,6 +210,24 @@ differ where the languages differ:
 | `null` | `null` | `nil` |
 | Empty input (`requireValue: false`) | `undefined` | `nil` |
 | `Infinity` / `NaN` | `Infinity` / `NaN` | `math.Inf(1)` / `math.NaN()` |
+
+### Numeric overflow
+
+Aligned. A decimal literal too large for a 64-bit float — `1e400`,
+`-1e30123` — is `Infinity` in ECMAScript, and both runtimes now parse it
+that way: TS gives `Infinity` / `-Infinity`, Go gives `math.Inf(1)` /
+`math.Inf(-1)`.
+
+This previously diverged: the Go engine's number matcher treated the
+overflow as "not a number", so the literal fell through to the text
+matcher and the parse failed with `unexpected`. It was fixed in
+`github.com/tabnas/parser/go` — `parseNumericString` now keeps the
+saturated value `strconv.ParseFloat` returns alongside `ErrRange`,
+mirroring JS unary `+`. Underflow (`1e-999` → `0`) was always aligned.
+
+Note that `@tabnas/json`, whose Go half is held to `encoding/json` parity
+rather than `JSON.parse` parity, deliberately still *rejects* overflowing
+literals. That is a per-plugin choice, not an engine difference.
 
 ### Errors
 

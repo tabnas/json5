@@ -34,7 +34,9 @@ build-go:
 	cd go && go build ./...
 
 test-go:
-	cd go && go test -v ./...
+	# -count=1: the shared test/spec fixtures live outside the Go module, so
+	# `go test` will happily serve a CACHED pass after they change.
+	cd go && go test -count=1 -v ./...
 
 clean-go:
 	cd go && go clean

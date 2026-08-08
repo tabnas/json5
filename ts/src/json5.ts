@@ -38,18 +38,41 @@ function isIdentifierStart(ch: string): boolean {
   return ch === '\\' || idStartRe.test(ch)
 }
 
-function isValidIdentifierName(s: string): boolean {
-  if (s.length === 0) return false
+const hex4Re = /^[0-9A-Fa-f]{4}$/
+
+// Validate AND decode a JSON5 IdentifierName (used for unquoted keys).
+// Returns the decoded name, or undefined when the source is not a legal
+// ECMAScript 5.1 IdentifierName.
+//
+// An IdentifierStart / IdentifierPart may be written as a
+// UnicodeEscapeSequence (`\uXXXX`), and the identifier's VALUE is the
+// decoded text — `{ sigΣma: 1 }` has the key `sigΣma`. Each escape
+// contributes exactly one UTF-16 code unit which must itself be a legal
+// identifier character: per ES5.1 7.6 an escape cannot smuggle an
+// otherwise-illegal character into an identifier, so ` `, `-`,
+// a leading `0`, and escaped surrogate halves are all rejected.
+function decodeIdentifierName(s: string): string | undefined {
+  if (s.length === 0) return undefined
+  let out = ''
   let first = true
-  for (const ch of s) {
-    if (first) {
-      if (!isIdentifierStart(ch)) return false
-      first = false
-    } else if (!idPartRe.test(ch) && ch !== '\\') {
-      return false
+  let i = 0
+  while (i < s.length) {
+    let ch: string
+    if (s[i] === '\\') {
+      if (s[i + 1] !== 'u') return undefined
+      const hex = s.slice(i + 2, i + 6)
+      if (!hex4Re.test(hex)) return undefined
+      ch = String.fromCharCode(parseInt(hex, 16))
+      i += 6
+    } else {
+      ch = String.fromCodePoint(s.codePointAt(i) as number)
+      i += ch.length
     }
+    if (first ? !idStartRe.test(ch) : !idPartRe.test(ch)) return undefined
+    out += ch
+    first = false
   }
-  return true
+  return out
 }
 
 // --- BEGIN EMBEDDED json5-grammar.jsonic ---
@@ -69,7 +92,11 @@ const grammarText = `
   # Drop Jsonic's implicit top-level list / map alternates so \`a:1\` and
   # \`1,2\` are not accepted at the document root. JSON5 requires a single
   # value expression at top level.
-  options: rule: { exclude: 'imp' }
+  #
+  # \`finish: false\` turns off Jsonic's auto-close of open rules at the end
+  # of the source: JSON5 requires every \`{\` / \`[\` to be closed, so \`{a:1\`
+  # is an error, not \`{"a":1}\`.
+  options: rule: { exclude: 'imp' finish: false }
 
   # Restrict the token sets used by Jsonic's grammar rules:
   #   VAL drops #TX — reject bare unquoted text at value positions.
@@ -95,6 +122,10 @@ const grammarText = `
   #   text.check   rejects unquoted text that cannot start a valid
   #                JSON5 IdentifierName AND is not a registered value
   #                keyword or regex-matched number.
+  #   string.check rejects the escape sequences ECMAScript 5.1 forbids
+  #                inside a string literal but the permissive lexer
+  #                would otherwise accept (\`\\1\`..\`\\9\`, \`\\0\` followed by
+  #                a digit, and the ES2015-only \`\\u{...}\` form).
   options: fixed: { check: '@fixed-check' }
   options: text:  { check: '@text-check' }
 
@@ -123,6 +154,7 @@ const grammarText = `
   # continuations (backslash + line terminator produces an empty string).
   options: string: {
     lex: true
+    check: '@string-check'
     chars: JSON5_QUOTE_CHARS
     multiChars: JSON5_MULTI_QUOTE_CHARS
     escapeChar: '\\\\'
@@ -162,7 +194,7 @@ const grammarText = `
       null:  { val: null }
 
       trailingDecExp: {
-        match:   '@/^[+-]?[0-9]+\\\\.[eE][+-]?[0-9]+/'
+        match:   '@/^[+-]?(?:0|[1-9][0-9]*)\\\\.[eE][+-]?[0-9]+/'
         val:     '@parse-trailing-dec-exp'
         consume: true
       }
@@ -197,22 +229,115 @@ const grammarText = `
 `
 // --- END EMBEDDED json5-grammar.jsonic ---
 
+// LineTerminator test, shared by the continuation stripper.
+const isLineTerminator = (ch: string | undefined) =>
+  '\n' === ch || '\r' === ch || '\u2028' === ch || '\u2029' === ch
+
+// Remove JSON5 string line continuations — a backslash immediately followed
+// by a LineTerminatorSequence (CRLF, CR, LF, LS, PS) produces nothing,
+// letting a string span lines.
+//
+// A LineContinuation is only part of the STRING grammar, so the scan below
+// tracks lexical context and rewrites inside string literals only. A blanket
+// `src.replace(...)` would also splice out a backslash-newline sitting in a
+// comment (extending the comment over the following line, swallowing real
+// tokens) or between tokens (silently accepting `[1,\<LF>2]`).
+function stripLineContinuations(
+  src: string,
+  quoteMap: Record<string, any>,
+  escChar: string,
+  hashComment: boolean,
+): string {
+  if (!src.includes(escChar)) return src
+  let out = ''
+  let i = 0
+  const len = src.length
+  while (i < len) {
+    const c = src[i]
+
+    // Comments are copied through verbatim.
+    if ('/' === c && '/' === src[i + 1]) {
+      let j = i + 2
+      while (j < len && !isLineTerminator(src[j])) j++
+      out += src.slice(i, j)
+      i = j
+      continue
+    }
+    if (hashComment && '#' === c) {
+      let j = i + 1
+      while (j < len && !isLineTerminator(src[j])) j++
+      out += src.slice(i, j)
+      i = j
+      continue
+    }
+    if ('/' === c && '*' === src[i + 1]) {
+      const end = src.indexOf('*/', i + 2)
+      const j = 0 > end ? len : end + 2
+      out += src.slice(i, j)
+      i = j
+      continue
+    }
+
+    // Inside a string literal: drop escape+LineTerminatorSequence, copy any
+    // other escape pair whole so an escaped quote does not end the scan.
+    if (quoteMap[c]) {
+      const quote = c
+      out += c
+      i++
+      while (i < len) {
+        const d = src[i]
+        if (d === escChar) {
+          const n = src[i + 1]
+          if ('\r' === n && '\n' === src[i + 2]) {
+            i += 3
+            continue
+          }
+          if (isLineTerminator(n)) {
+            i += 2
+            continue
+          }
+          if (undefined === n) {
+            out += d
+            i++
+            break
+          }
+          out += d + n
+          i += 2
+          continue
+        }
+        out += d
+        i++
+        if (d === quote) break
+      }
+      continue
+    }
+
+    out += c
+    i++
+  }
+  return out
+}
+
 // Plugin implementation.
 const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
   // fixedCheck runs before every lexer step but gates its own work so the
-  // preprocessing happens exactly once per parse. It removes JSON5 string
-  // line continuations — a backslash immediately followed by a
-  // LineTerminatorSequence (CRLF, CR, LF, LS, PS) produces nothing, letting a
-  // string span lines. This can't be done with the escape map: the lexer
-  // drops any escape entry whose replacement is the empty string, so the
-  // continuation is stripped here at the source level instead.
+  // preprocessing happens exactly once per parse. It strips the string line
+  // continuations. This can't be done with the escape map: the lexer drops
+  // any escape entry whose replacement is the empty string, so the
+  // continuation is removed here at the source level instead.
   const fixedCheck = (lex: Lex) => {
     const ctx: any = (lex as any).ctx
     if (!ctx || !ctx.u) return
     if (ctx.u.json5_preprocessed) return
     ctx.u.json5_preprocessed = true
     const src = String((lex as any).src)
-    const rewritten = src.replace(new RegExp('\\\\(?:\\r\\n|[\\r\\n\\u2028\\u2029])', 'g'), '')
+    const lcfg: any = (lex as any).cfg
+    const rewritten = stripLineContinuations(
+      src,
+      lcfg?.string?.quoteMap || {},
+      lcfg?.string?.escChar || '\\',
+      !!lcfg?.comment?.def?.hash?.lex,
+    )
     if (rewritten !== src) {
       ;(lex as any).src = rewritten
       const pnt: any = (lex as any).pnt
@@ -241,6 +366,46 @@ const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
       if (entry.match && entry.match.test(forward)) return undefined
     }
     return { done: true, token: undefined }
+  }
+
+  // stringCheck rejects escape sequences that ECMAScript 5.1 — and hence
+  // JSON5 — forbids inside a string literal, but that the engine's
+  // permissive escape handling (allowUnknown, non-strict `\u{...}`) would
+  // otherwise accept:
+  //   \1 .. \9    a DecimalDigit is an EscapeCharacter, so it is not a
+  //               NonEscapeCharacter: legacy octal escapes are not JSON5.
+  //   \0<digit>   `0` is an escape only when NOT followed by a DecimalDigit.
+  //   \u{XXXX}    the ES2015 code-point form; JSON5 has only `\uXXXX`.
+  // Returning { done: true, token: undefined } halts lexing at this
+  // position so the parser raises "unexpected character" — the same shape
+  // textCheck uses.
+  const isDigit = (ch: string | undefined) =>
+    undefined !== ch && '0' <= ch && ch <= '9'
+
+  const stringCheck = (lex: Lex) => {
+    const pnt: any = (lex as any).pnt
+    const src: string = (lex as any).src
+    if (!pnt || pnt.sI >= src.length) return undefined
+    const cfg: any = (lex as any).cfg
+    const quote = src[pnt.sI]
+    if (!cfg?.string?.quoteMap?.[quote]) return undefined
+    const esc = cfg.string.escChar || '\\'
+    for (let i = pnt.sI + 1; i < src.length; i++) {
+      const c = src[i]
+      if (c === quote) break
+      if (c !== esc) continue
+      const n = src[i + 1]
+      if (undefined === n) break
+      if (
+        ('0' === n && isDigit(src[i + 2])) ||
+        ('1' <= n && n <= '9') ||
+        ('u' === n && '{' === src[i + 2])
+      ) {
+        return { done: true, token: undefined }
+      }
+      i++
+    }
+    return undefined
   }
 
   const parseTrailingDecExp = (res: RegExpMatchArray) => parseFloat(res[0])
@@ -294,6 +459,7 @@ const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
   const refs: Record<string, any> = {
     '@fixed-check': fixedCheck,
     '@text-check': textCheck,
+    '@string-check': stringCheck,
     '@parse-trailing-dec-exp': parseTrailingDecExp,
     '@parse-uppercase-hex': parseUppercaseHex,
   }
@@ -330,11 +496,20 @@ const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
     actions.push((r: Rule, ctx: Context) => {
       const t = (r as any).o0
       if (!t || t.tin !== TinTX) return
-      if (!isValidIdentifierName(t.src)) {
+      const name = decodeIdentifierName(t.src)
+      if (undefined === name) {
         ;(ctx as any).ParseErr = t
         if (typeof (t as any).bad === 'function') {
           return (t as any).bad('unexpected')
         }
+        return
+      }
+      // A key written with `\uXXXX` escapes resolves to the decoded text.
+      // jsonic's `@pairkey` alt action has already copied the raw token
+      // value into `r.u.key`, so update both.
+      if (name !== t.val) {
+        t.val = name
+        ;(r as any).u.key = name
       }
     })
     if (rs.def) rs.def.ao = actions
