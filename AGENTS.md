@@ -319,9 +319,9 @@ after you edit them. `make test-go` passes `-count=1` for this reason.
 
 The repo root [`Makefile`](Makefile) wraps both: `make build|test` run
 the TS and Go halves; `make publish-go V=x.y.z` injects `V` into the
-`const Version` in `go/json5.go` (currently `0.1.1`) and tags `go/vX.Y.Z`;
-`make tags-go` lists Go tags. The TS package version is `0.1.0`
-(`ts/package.json`).
+`const Version` in `go/json5.go` and tags `go/vX.Y.Z`;
+`make tags-go` lists Go tags. The TS package version is declared in
+`ts/package.json`.
 
 ## Tests in this repo
 

@@ -31,3 +31,9 @@ package-lock.json
 yarn.lock
 
 
+
+# Scratch output from an oracle probe run against test/json5-tests while
+# measuring conformance. Nothing in the repo reads or writes it — it is a
+# by-product of a one-off measurement, kept out of the tree so it stops
+# showing up as untracked. Safe to delete.
+test/json5-tests-expected.json
