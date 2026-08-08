@@ -13,7 +13,11 @@
   # Drop Jsonic's implicit top-level list / map alternates so `a:1` and
   # `1,2` are not accepted at the document root. JSON5 requires a single
   # value expression at top level.
-  options: rule: { exclude: 'imp' }
+  #
+  # `finish: false` turns off Jsonic's auto-close of open rules at the end
+  # of the source: JSON5 requires every `{` / `[` to be closed, so `{a:1`
+  # is an error, not `{"a":1}`.
+  options: rule: { exclude: 'imp' finish: false }
 
   # Restrict the token sets used by Jsonic's grammar rules:
   #   VAL drops #TX — reject bare unquoted text at value positions.
@@ -39,6 +43,10 @@
   #   text.check   rejects unquoted text that cannot start a valid
   #                JSON5 IdentifierName AND is not a registered value
   #                keyword or regex-matched number.
+  #   string.check rejects the escape sequences ECMAScript 5.1 forbids
+  #                inside a string literal but the permissive lexer
+  #                would otherwise accept (`\1`..`\9`, `\0` followed by
+  #                a digit, and the ES2015-only `\u{...}` form).
   options: fixed: { check: '@fixed-check' }
   options: text:  { check: '@text-check' }
 
@@ -67,6 +75,7 @@
   # continuations (backslash + line terminator produces an empty string).
   options: string: {
     lex: true
+    check: '@string-check'
     chars: JSON5_QUOTE_CHARS
     multiChars: JSON5_MULTI_QUOTE_CHARS
     escapeChar: '\\'
@@ -106,7 +115,7 @@
       null:  { val: null }
 
       trailingDecExp: {
-        match:   '@/^[+-]?[0-9]+\\.[eE][+-]?[0-9]+/'
+        match:   '@/^[+-]?(?:0|[1-9][0-9]*)\\.[eE][+-]?[0-9]+/'
         val:     '@parse-trailing-dec-exp'
         consume: true
       }

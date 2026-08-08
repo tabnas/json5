@@ -5,7 +5,8 @@
 `@tabnas/json5` is a **JSON5 grammar plugin** for the
 [`tabnas`](https://github.com/tabnas/parser) parsing engine. It accepts
 [JSON5](https://json5.org) syntax — comments (`//`, `/* */`), trailing
-commas, single-quoted strings, unquoted ECMAScript IdentifierName keys,
+commas, single-quoted strings, unquoted ECMAScript IdentifierName keys
+(including `\uXXXX` escapes in the identifier, which are decoded),
 hex numbers, leading/trailing decimal points, `+`/`-` signs,
 `Infinity` / `NaN`, and string line continuations — over and above
 standard JSON.
@@ -95,6 +96,60 @@ The fixture extension encodes the expected outcome (see
 Both suites walk the tree and assert parse-success vs parse-error per
 extension; they **skip** gracefully if the corpus directory is absent.
 
+They also check the parsed **value** of every `.json` fixture against
+the host language's own JSON parser (`JSON.parse` / `encoding/json`) —
+a fixture must not pass by parsing to the wrong thing. One upstream
+fixture, `comments/irregular-block-comment.json`, is mislabelled (it
+contains a JSON5 block comment, so it is not valid JSON); both suites
+apply the value oracle only where the fixture really is JSON.
+
+The vendored corpus is a full clone of upstream at
+`ceb24d4080137d70833f86c25659c1331b80a387` — 114 fixtures, all run in
+both runtimes.
+
+### Known deviations from the JSON5 grammar
+
+Verified by differential testing against the reference `json5` npm
+package (the whole corpus plus ~50k randomised inputs). One gap remains,
+and it is rooted upstream, not in this repo:
+
+- **Literal control characters inside strings.** `JSON5SourceCharacter`
+  admits a raw tab (or any C0 char) inside a string literal; both ports
+  reject it with `unprintable`. Escaped forms (`"\t"`) are unaffected.
+
+  The engine gap that caused this is **fixed**: `@tabnas/parser` now has
+  `options.string.allowControl`, which admits raw C0 characters (other
+  than line chars, which stay governed by `multiChars`) as plain string
+  body. TS honours it end to end. **Go does not yet**, because
+  `@tabnas/jsonic`'s Go-only `jsonic$unprintable` pre-scan matcher
+  (`jsonic/go/unprintable.go`, `unprintableMatch`) runs at order
+  4,500,000 — ahead of the engine's string matcher — and raises
+  `unprintable` without consulting `cfg.AllowControl`. Until that matcher
+  honours the flag, turning `allowControl` on here would split TS and Go,
+  so this grammar deliberately leaves it off. Do not work around it by
+  nulling `jsonic$unprintable` from this plugin.
+
+  Repro (from `go/`, workspace on):
+
+  ```go
+  tr := true
+  // fails: unprintable
+  jsonic.Make(jsonic.Options{String: &jsonic.StringOptions{AllowControl: &tr}}).Parse("\"a\tb\"")
+  // succeeds: "a\tb" — same options, jsonic's shim matcher removed
+  jsonic.Make(jsonic.Options{
+      String: &jsonic.StringOptions{AllowControl: &tr},
+      Lex:    &jsonic.LexOptions{Match: map[string]*jsonic.MatchSpec{"jsonic$unprintable": nil}},
+  }).Parse("\"a\tb\"")
+  ```
+
+Numeric overflow (`1e400`) used to be a second, Go-only deviation: the Go
+number matcher treated the overflow as "not a number" and the literal fell
+through to text. That is **fixed** in the engine — both ports now yield
+`Infinity`, pinned by `test/spec/numbers.tsv`. The fixture needs an engine
+newer than the published `github.com/tabnas/parser/go v0.6.0`, so it passes
+with the workspace on (and in CI, which builds against sibling checkouts)
+and fails under `GOWORK=off` until the engine is republished.
+
 ## The grammar is embedded — never hand-edit the embedded block
 
 `ts/json5-grammar.jsonic` is embedded verbatim into **both**
@@ -141,20 +196,66 @@ LineTerminatorSequence (`CRLF`, `CR`, `LF`, `U+2028` LS, `U+2029` PS) —
 produces an empty string so the string spans lines. This **cannot** be
 done through the escape map: the lexer drops any escape entry whose
 replacement is the empty string. So both runtimes strip continuations
-from the source before lexing:
+from the source before lexing, in a one-time per-parse rewrite driven by
+the `fixed.check` hook (`fixedCheck`).
 
-- **TS** (`ts/src/json5.ts`, `fixedCheck`, wired as `fixed.check`): a
-  one-time per-parse rewrite, `src.replace(...)`. The regex is built with
-  the **string form** `new RegExp('\\\\(?:\\r\\n|[\\r\\n\\u2028\\u2029])', 'g')`,
-  **not** a regex literal — a literal `U+2028`/`U+2029` in JS source is a
-  line break and breaks parsing (historically; even where tolerated now,
-  keep the string form for safety and to mirror the explicit-escape
-  intent). Do not "simplify" this into a `/.../u` literal.
-- **Go** (`go/json5.go`): a package-level `json5LineContinuations =
-  strings.NewReplacer(...)` with five backslash-prefixed pairs (`\CRLF`,
-  `\CR`, `\LF`, `\U+2028`, `\U+2029`, each mapped to `""`). **CRLF is
-  listed first** so the two-character sequence is matched before a lone
-  `CR`/`LF`. Keep that ordering.
+The strip is **context-aware** (`stripLineContinuations`, mirrored in
+`ts/src/json5.ts` and `go/json5.go`): a `LineContinuation` exists only in
+the STRING grammar, so the scan copies comments (`//`, `/* */`, and `#`
+when `hashComment` is on) and unquoted text through untouched and only
+rewrites inside a string literal. Do **not** "simplify" this back into a
+blanket `src.replace(...)` / `strings.NewReplacer(...)`: that also
+splices out a backslash-newline sitting in a `//` comment (extending the
+comment over the next line and swallowing real tokens, so `// c\<LF>1`
+loses its `1`) and one sitting between tokens (silently accepting
+`[1,\<LF>2]`). Both are covered by fixtures in
+`test/spec/strings.tsv` and `test/spec/comments.tsv`.
+
+Inside the scan, `CRLF` is matched before a lone `CR`/`LF`; keep that
+ordering. Never write a literal `U+2028`/`U+2029` into either source
+file — in JS source those are line breaks. Use `'\u2028'` escapes (the
+TS helper `isLineTerminator` does).
+
+### Unquoted keys are DECODED, not just validated
+
+An unquoted key is an ECMAScript 5.1 `IdentifierName`, which may spell a
+character as a `\uXXXX` UnicodeEscapeSequence — and the key's value is
+the DECODED text (`{sig\u03A3ma:1}` has the key `sigΣma`). Both runtimes
+share one function (`decodeIdentifierName`) that validates and decodes in
+a single pass: each escape contributes exactly one UTF-16 code unit,
+which must itself be a legal `IdentifierStart` / `IdentifierPart` (ES5.1
+7.6 — an escape cannot smuggle an otherwise-illegal character into an
+identifier, so `{\u0030:1}`, `{a\u002Db:1}` and escaped surrogate halves
+are rejected). The `pair` after-open action writes the decoded name onto
+both the key token's `val` and `r.u.key` / `r.U["key"]`, because jsonic's
+`@pairkey` alt action has already copied the raw source text there.
+
+### Restricting escapes and rejecting jsonic's auto-close
+
+Two more JSON5 tightenings live in the grammar file:
+
+- `options: string: { check: '@string-check' }` — the engine's string
+  lexer is permissive (`allowUnknown`, non-strict `\u{...}`). ES5.1 makes
+  a `DecimalDigit` an `EscapeCharacter`, so `stringCheck` rejects
+  `\1`..`\9`, `\0` followed by a digit, and the ES2015-only `\u{XXXX}`.
+  `\xHH` and `\uXXXX` stay — JSON5 has both. The TS engine now copies
+  `options.string.check` (and `comment.check` / `text.check`) into the
+  matcher config itself, so the TS plugin declares the hook in the grammar
+  and nothing else — the old "assign `cfg.string.check` after
+  `tn.grammar(...)`" patch is gone.
+
+  Go still needs the manual wiring the plugin does (`cfg.FixedCheck`,
+  `cfg.TextCheck`, `cfg.StringCheck` after `j.Grammar(...)`): the Go
+  engine wires `String.Check` when it is set on the `Options` struct, but
+  `MapToOptions` — the bridge from the parsed grammar map to `Options` —
+  still has no `check` case, so a grammar-declared hook never reaches the
+  config on its own. Removing that block turns the escape restrictions and
+  the unquoted-text check off; verified by deleting it and watching the Go
+  suite fail.
+- `options: rule: { exclude: 'imp' finish: false }` — jsonic auto-closes
+  any rule still open at end of source, which would read `{a:1` as
+  `{"a":1}`. JSON5 requires the closing brace, so `finish: false` turns
+  that off and an unterminated map/list is an `end_of_source` error.
 
 ### Number shapes the built-in lexer misses are matched by regex value-defs
 
@@ -163,6 +264,12 @@ recognised by the engine's number lexer, so the grammar registers
 regex-matched `value.def` entries (`trailingDecExp` → `parseTrailingDecExp`,
 `uppercaseHex` → `parseUppercaseHex`) to give both runtimes identical
 behaviour on those forms.
+
+These regexes bypass `number.exclude`, so they must carry their own
+`DecimalIntegerLiteral` restriction: `trailingDecExp` is
+`^[+-]?(?:0|[1-9][0-9]*)\.[eE][+-]?[0-9]+`, which keeps `0.e4` and
+rejects `05.e4`. A plain `[0-9]+` here would let JS-style leading zeros
+back in through the side door.
 
 ### `Infinity` / `NaN` keywords are layered on in code, not in the grammar file
 
@@ -175,7 +282,8 @@ code under the `infinity` option (default on).
 
 - `pair` loses its leading-comma / `jsonic` open alt (so `{,}` fails) and
   gains an after-open validator that rejects `#TX` keys whose source is
-  not a valid JSON5 IdentifierName (`isValidIdentifierName`).
+  not a valid JSON5 IdentifierName, and rewrites the ones that are to
+  their decoded form (`decodeIdentifierName`, see above).
 - When `requireValue` is set (default), `val` loses its `#ZZ jsonic` alt
   and the parser's `start` is wrapped so an empty/whitespace-only source
   errors with code `json5_empty` / `json5_no_value`. (Go: the engine
@@ -202,8 +310,12 @@ Go (from `go/`):
 
 ```bash
 go build ./...
-go test -v ./...       # unit tests + the vendored json5-tests corpus
+go test -count=1 -v ./...   # unit tests + the vendored json5-tests corpus
 ```
+
+Use `-count=1`. The shared `test/spec/*.tsv` fixtures and the corpus live
+OUTSIDE the Go module, so `go test` will happily serve a **cached** pass
+after you edit them. `make test-go` passes `-count=1` for this reason.
 
 The repo root [`Makefile`](Makefile) wraps both: `make build|test` run
 the TS and Go halves; `make publish-go V=x.y.z` injects `V` into the
@@ -213,6 +325,8 @@ the TS and Go halves; `make publish-go V=x.y.z` injects `V` into the
 
 ## Tests in this repo
 
+- `test/spec/*.tsv` — the shared cross-runtime fixtures (see
+  `test/AGENTS.md`); prefer these over one-off in-language assertions.
 - `ts/test/json5.test.ts` / `go/json5_test.go` — unit suites (mirror each
   other).
 - `ts/test/suite.test.ts` / `go/suite_test.go` — the vendored JSON5

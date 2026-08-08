@@ -6,3 +6,9 @@ input	expected	opts
 {a:1, b:2, c:"three"}	{"a":1,"b":2,"c":"three"}
 {a:1, 'b':2}	{"a":1,"b":2}
 { nested: { x: 1, y: 2 } }	{"nested":{"x":1,"y":2}}
+# Every brace must be closed: JSON5 has no end-of-source auto-close.
+{	ERROR
+{a:1	ERROR
+{a:1,	ERROR
+{a:	ERROR
+{ a: { b: 1 }	ERROR

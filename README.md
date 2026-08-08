@@ -15,7 +15,12 @@ trailing-decimal numbers, explicit `+` signs, and string line
 continuations.
 
 Both ports share one grammar file and pass the full official
-[`json5/json5-tests`](https://github.com/json5/json5-tests) corpus.
+[`json5/json5-tests`](https://github.com/json5/json5-tests) corpus — all
+114 fixtures, with the parsed value of every `.json` fixture checked
+against the host language's own JSON parser. One documented deviation
+remains: a literal control character inside a string literal (a raw tab)
+is rejected rather than accepted; see
+[`ts/doc/concepts.md`](ts/doc/concepts.md#compliance).
 
 ## Install
 

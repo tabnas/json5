@@ -146,13 +146,18 @@ both ports — see the TS [reference](../../ts/doc/reference.md#accepted-syntax)
 for the full set with examples. In summary:
 
 - **Top level** — exactly one value. No implicit lists (`1,2,3`) or maps
-  (`a:1`).
+  (`a:1`). Every `{` / `[` must be closed: `{a:1` is an error.
 - **Objects** — double-, single-, or unquoted (identifier-name) keys;
   trailing commas; duplicate keys take the last value; numeric keys
-  (`{10:1}`) rejected.
+  (`{10:1}`) rejected. An identifier key may spell a character as a
+  `\uXXXX` escape and is stored DECODED (`{sig\u03A3ma:1}` →
+  `{"sigΣma":1}`).
 - **Arrays** — comma-separated, trailing comma allowed.
 - **Strings** — single- or double-quoted, ES5.1 escapes plus line
-  continuations (backslash + newline → joined).
+  continuations (backslash + newline → joined, inside strings only).
+  `\1`..`\9`, `\0` followed by a digit, and the ES2015 `\u{...}` form
+  are rejected; a literal control character inside a string is rejected
+  too (a known deviation — use `"\t"`).
 - **Numbers** — decimal and hex, optional leading `+`/`-`, leading or
   trailing decimal point, exponents; JS-style leading-zero integers
   (`010`, `080`) rejected.

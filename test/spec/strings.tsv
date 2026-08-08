@@ -11,3 +11,31 @@ input	expected	opts
 "line1\\\nline2"	"line1line2"
 `backtick`	ERROR:unexpected
 `backtick`	"backtick"	{"backtickString":true}
+# ES5.1 escapes JSON5 accepts: a NonEscapeCharacter yields itself, and
+# \uXXXX surrogate halves combine into one code point.
+"\\a"	"a"
+"\\$"	"$"
+"\\uD83D\\uDE00"	"\ud83d\ude00"
+# EscapeCharacter includes DecimalDigit, so \1..\9 (legacy octal) are
+# not escapes; `\0` is one only when NOT followed by a digit. `\u{...}`
+# is ES2015-only and not JSON5.
+"\\1"	ERROR
+"\\9"	ERROR
+"\\01"	ERROR
+"\\08"	ERROR
+"\\u{41}"	ERROR
+'\\1'	ERROR
+{a:"\\1"}	ERROR
+["ok","\\1"]	ERROR
+# A digit after a COMPLETED escape is just a character.
+"\\u00410"	"A0"
+"\\n1"	"\n1"
+# A LineContinuation belongs to the STRING grammar only: it is stripped
+# inside a string literal, and is not a token separator anywhere else.
+["a\\\nb"]	["ab"]
+["a\\\r\nb"]	["ab"]
+["x\\\ny","p\\\nq"]	["xy","pq"]
+{"a\\\nb":1}	{"ab":1}
+[1,\\\n2]	ERROR
+{a:\\\n1}	ERROR
+\\\n1	ERROR

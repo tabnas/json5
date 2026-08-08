@@ -53,16 +53,112 @@ const json5LineTerminator = "\r\n\u2028\u2029"
 // counter): LF, LS, PS. CR is folded into the following LF for CRLF.
 const json5RowChars = "\n\u2028\u2029"
 
-// JSON5 string line continuations: a backslash immediately followed by a
-// LineTerminatorSequence (CRLF, CR, LF, LS, PS) is removed entirely. CRLF is
-// listed first so the two-character sequence is matched before lone CR / LF.
-var json5LineContinuations = strings.NewReplacer(
-	"\\\r\n", "",
-	"\\\r", "",
-	"\\\n", "",
-	"\\\u2028", "",
-	"\\\u2029", "",
-)
+// isLineTerminatorRune reports whether r is a JSON5 LineTerminator.
+func isLineTerminatorRune(r rune) bool {
+	return r == '\n' || r == '\r' || r == '\u2028' || r == '\u2029'
+}
+
+// stripLineContinuations removes JSON5 string line continuations: a
+// backslash immediately followed by a LineTerminatorSequence (CRLF, CR, LF,
+// LS, PS) produces nothing, letting a string span lines. CRLF is handled
+// first so the two-character sequence is consumed before a lone CR / LF.
+//
+// A LineContinuation is only part of the STRING grammar, so the scan tracks
+// lexical context and rewrites inside string literals only. A blanket
+// replace would also splice out a backslash-newline sitting in a comment
+// (extending the comment over the following line, swallowing real tokens) or
+// between tokens (silently accepting "[1,\<LF>2]"). Mirrors the TS
+// stripLineContinuations.
+func stripLineContinuations(src string, quotes map[rune]bool, esc rune, hashComment bool) string {
+	if !strings.ContainsRune(src, esc) {
+		return src
+	}
+	var b strings.Builder
+	b.Grow(len(src))
+	i := 0
+	for i < len(src) {
+		c, size := utf8.DecodeRuneInString(src[i:])
+
+		// Comments are copied through verbatim.
+		if c == '/' && strings.HasPrefix(src[i+size:], "/") {
+			j := i + size + 1
+			for j < len(src) {
+				r, rsize := utf8.DecodeRuneInString(src[j:])
+				if isLineTerminatorRune(r) {
+					break
+				}
+				j += rsize
+			}
+			b.WriteString(src[i:j])
+			i = j
+			continue
+		}
+		if hashComment && c == '#' {
+			j := i + size
+			for j < len(src) {
+				r, rsize := utf8.DecodeRuneInString(src[j:])
+				if isLineTerminatorRune(r) {
+					break
+				}
+				j += rsize
+			}
+			b.WriteString(src[i:j])
+			i = j
+			continue
+		}
+		if c == '/' && strings.HasPrefix(src[i+size:], "*") {
+			end := strings.Index(src[i+size+1:], "*/")
+			j := len(src)
+			if end >= 0 {
+				j = i + size + 1 + end + 2
+			}
+			b.WriteString(src[i:j])
+			i = j
+			continue
+		}
+
+		// Inside a string literal: drop escape+LineTerminatorSequence, copy
+		// any other escape pair whole so an escaped quote does not end the
+		// scan.
+		if quotes[c] {
+			quote := c
+			b.WriteRune(c)
+			i += size
+			for i < len(src) {
+				d, dsize := utf8.DecodeRuneInString(src[i:])
+				if d == esc {
+					if i+dsize >= len(src) {
+						b.WriteRune(d)
+						i += dsize
+						break
+					}
+					n, nsize := utf8.DecodeRuneInString(src[i+dsize:])
+					if n == '\r' && strings.HasPrefix(src[i+dsize+nsize:], "\n") {
+						i += dsize + nsize + 1
+						continue
+					}
+					if isLineTerminatorRune(n) {
+						i += dsize + nsize
+						continue
+					}
+					b.WriteString(src[i : i+dsize+nsize])
+					i += dsize + nsize
+					continue
+				}
+				b.WriteRune(d)
+				i += dsize
+				if d == quote {
+					break
+				}
+			}
+			continue
+		}
+
+		b.WriteString(src[i : i+size])
+		i += size
+	}
+	return b.String()
+}
 
 // --- BEGIN EMBEDDED json5-grammar.jsonic ---
 const grammarText = `# JSON5 Grammar Definition
@@ -80,7 +176,11 @@ const grammarText = `# JSON5 Grammar Definition
   # Drop Jsonic's implicit top-level list / map alternates so ` + "`" + `a:1` + "`" + ` and
   # ` + "`" + `1,2` + "`" + ` are not accepted at the document root. JSON5 requires a single
   # value expression at top level.
-  options: rule: { exclude: 'imp' }
+  #
+  # ` + "`" + `finish: false` + "`" + ` turns off Jsonic's auto-close of open rules at the end
+  # of the source: JSON5 requires every ` + "`" + `{` + "`" + ` / ` + "`" + `[` + "`" + ` to be closed, so ` + "`" + `{a:1` + "`" + `
+  # is an error, not ` + "`" + `{"a":1}` + "`" + `.
+  options: rule: { exclude: 'imp' finish: false }
 
   # Restrict the token sets used by Jsonic's grammar rules:
   #   VAL drops #TX — reject bare unquoted text at value positions.
@@ -106,6 +206,10 @@ const grammarText = `# JSON5 Grammar Definition
   #   text.check   rejects unquoted text that cannot start a valid
   #                JSON5 IdentifierName AND is not a registered value
   #                keyword or regex-matched number.
+  #   string.check rejects the escape sequences ECMAScript 5.1 forbids
+  #                inside a string literal but the permissive lexer
+  #                would otherwise accept (` + "`" + `\1` + "`" + `..` + "`" + `\9` + "`" + `, ` + "`" + `\0` + "`" + ` followed by
+  #                a digit, and the ES2015-only ` + "`" + `\u{...}` + "`" + ` form).
   options: fixed: { check: '@fixed-check' }
   options: text:  { check: '@text-check' }
 
@@ -134,6 +238,7 @@ const grammarText = `# JSON5 Grammar Definition
   # continuations (backslash + line terminator produces an empty string).
   options: string: {
     lex: true
+    check: '@string-check'
     chars: JSON5_QUOTE_CHARS
     multiChars: JSON5_MULTI_QUOTE_CHARS
     escapeChar: '\\'
@@ -173,7 +278,7 @@ const grammarText = `# JSON5 Grammar Definition
       null:  { val: null }
 
       trailingDecExp: {
-        match:   '@/^[+-]?[0-9]+\\.[eE][+-]?[0-9]+/'
+        match:   '@/^[+-]?(?:0|[1-9][0-9]*)\\.[eE][+-]?[0-9]+/'
         val:     '@parse-trailing-dec-exp'
         consume: true
       }
@@ -280,17 +385,18 @@ func plainMapNode(v any) any {
 	}
 }
 
-// isJS5IdentifierStart reports whether r may begin a JSON5 IdentifierName.
-// JSON5 defers to ECMAScript 5.1 IdentifierStart.
-func isJS5IdentifierStart(r rune) bool {
-	if r == '$' || r == '_' || r == '\\' {
+// idStartRune reports whether r is an ECMAScript 5.1 IdentifierStart
+// CHARACTER \u2014 the `\` that introduces a UnicodeEscapeSequence is not
+// included (see isJS5IdentifierStart for the source-level test).
+func idStartRune(r rune) bool {
+	if r == '$' || r == '_' {
 		return true
 	}
 	return unicode.IsLetter(r) || unicode.Is(unicode.Nl, r)
 }
 
-func isJS5IdentifierPart(r rune) bool {
-	if isJS5IdentifierStart(r) {
+func idPartRune(r rune) bool {
+	if idStartRune(r) {
 		return true
 	}
 	if r == '\u200C' || r == '\u200D' {
@@ -301,24 +407,66 @@ func isJS5IdentifierPart(r rune) bool {
 		unicode.Is(unicode.Pc, r)
 }
 
-func isValidIdentifierName(s string) bool {
+// isJS5IdentifierStart reports whether r may begin a JSON5 IdentifierName
+// in the SOURCE text: an IdentifierStart character, or the `\` of a
+// UnicodeEscapeSequence.
+func isJS5IdentifierStart(r rune) bool {
+	return r == '\\' || idStartRune(r)
+}
+
+// decodeIdentifierName validates AND decodes a JSON5 IdentifierName (used
+// for unquoted keys), returning the decoded name and true, or false when
+// the source is not a legal ECMAScript 5.1 IdentifierName.
+//
+// An IdentifierStart / IdentifierPart may be written as a
+// UnicodeEscapeSequence (`\uXXXX`), and the identifier's VALUE is the
+// decoded text \u2014 `{ sig\u03A3ma: 1 }` has the key `sig\u03A3ma`. Each escape
+// contributes exactly one UTF-16 code unit which must itself be a legal
+// identifier character: per ES5.1 7.6 an escape cannot smuggle an
+// otherwise-illegal character into an identifier, so ` `, `-`, a leading
+// `0`, and escaped surrogate halves are all rejected. Mirrors the TS
+// decodeIdentifierName.
+func decodeIdentifierName(s string) (string, bool) {
 	if s == "" {
-		return false
+		return "", false
 	}
+	var b strings.Builder
 	first := true
-	for _, r := range s {
+	for i := 0; i < len(s); {
+		var r rune
+		if s[i] == '\\' {
+			if i+6 > len(s) || s[i+1] != 'u' {
+				return "", false
+			}
+			cu, err := strconv.ParseUint(s[i+2:i+6], 16, 32)
+			if err != nil {
+				return "", false
+			}
+			r = rune(cu)
+			// A lone UTF-16 surrogate half is not an identifier character.
+			if 0xD800 <= r && r <= 0xDFFF {
+				return "", false
+			}
+			i += 6
+		} else {
+			size := 0
+			r, size = utf8.DecodeRuneInString(s[i:])
+			if r == utf8.RuneError && size <= 1 {
+				return "", false
+			}
+			i += size
+		}
 		if first {
-			if !isJS5IdentifierStart(r) {
-				return false
+			if !idStartRune(r) {
+				return "", false
 			}
 			first = false
-			continue
+		} else if !idPartRune(r) {
+			return "", false
 		}
-		if !isJS5IdentifierPart(r) {
-			return false
-		}
+		b.WriteRune(r)
 	}
-	return true
+	return b.String(), true
 }
 
 // Json5 is the plugin entry point. Pass it to tabnasjsonic.UseDefaults
@@ -350,7 +498,23 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 			return nil
 		}
 		lex.Ctx.U["json5_preprocessed"] = true
-		if rewritten := json5LineContinuations.Replace(lex.Src); rewritten != lex.Src {
+		quotes := map[rune]bool{}
+		esc := '\\'
+		hash := false
+		if lcfg := lex.Config; lcfg != nil {
+			if lcfg.StringChars != nil {
+				quotes = lcfg.StringChars
+			}
+			if lcfg.EscapeChar != 0 {
+				esc = lcfg.EscapeChar
+			}
+			for _, start := range lcfg.CommentLine {
+				if start == "#" {
+					hash = true
+				}
+			}
+		}
+		if rewritten := stripLineContinuations(lex.Src, quotes, esc, hash); rewritten != lex.Src {
 			lex.Src = rewritten
 			if p := lex.Cursor(); p != nil {
 				p.Len = len(lex.Src)
@@ -389,6 +553,64 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 			}
 		}
 		return &jsonic.LexCheckResult{Done: true, Token: nil}
+	}
+
+	// stringCheck rejects escape sequences that ECMAScript 5.1 — and hence
+	// JSON5 — forbids inside a string literal, but that the engine's
+	// permissive escape handling (AllowUnknownEscape, non-strict \u{...})
+	// would otherwise accept:
+	//   \1 .. \9    a DecimalDigit is an EscapeCharacter, so it is not a
+	//               NonEscapeCharacter: legacy octal escapes are not JSON5.
+	//   \0<digit>   `0` is an escape only when NOT followed by a DecimalDigit.
+	//   \u{XXXX}    the ES2015 code-point form; JSON5 has only \uXXXX.
+	// Returning Done=true with a nil Token halts lexing at this position so
+	// the parser raises "unexpected character" — the same shape textCheck
+	// uses. Mirrors the TS stringCheck.
+	stringCheck := func(lex *jsonic.Lex) *jsonic.LexCheckResult {
+		p := lex.Cursor()
+		if p == nil || p.SI >= len(lex.Src) {
+			return nil
+		}
+		cfg := lex.Config
+		if cfg == nil || cfg.StringChars == nil {
+			return nil
+		}
+		src := lex.Src
+		quote, qsize := utf8.DecodeRuneInString(src[p.SI:])
+		if !cfg.StringChars[quote] {
+			return nil
+		}
+		esc := cfg.EscapeChar
+		if esc == 0 {
+			esc = '\\'
+		}
+		for i := p.SI + qsize; i < len(src); {
+			r, size := utf8.DecodeRuneInString(src[i:])
+			if r == quote {
+				break
+			}
+			if r != esc {
+				i += size
+				continue
+			}
+			if i+size >= len(src) {
+				break
+			}
+			next := src[i+size]
+			var after byte
+			if i+size+1 < len(src) {
+				after = src[i+size+1]
+			}
+			if ('1' <= next && next <= '9') ||
+				(next == '0' && '0' <= after && after <= '9') ||
+				(next == 'u' && after == '{') {
+				return &jsonic.LexCheckResult{Done: true, Token: nil}
+			}
+			// Skip the escape lead and the character it escapes.
+			_, nsize := utf8.DecodeRuneInString(src[i+size:])
+			i += size + nsize
+		}
+		return nil
 	}
 
 	parseTrailingDecExp := func(m []string) any {
@@ -499,6 +721,7 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 	refs := map[jsonic.FuncRef]any{
 		"@fixed-check":            jsonic.LexCheck(fixedCheck),
 		"@text-check":             jsonic.LexCheck(textCheck),
+		"@string-check":           jsonic.LexCheck(stringCheck),
 		"@parse-trailing-dec-exp": func(m []string) any { return parseTrailingDecExp(m) },
 		"@parse-uppercase-hex":    func(m []string) any { return parseUppercaseHex(m) },
 	}
@@ -531,6 +754,7 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 	if cfg != nil {
 		cfg.FixedCheck = fixedCheck
 		cfg.TextCheck = textCheck
+		cfg.StringCheck = stringCheck
 	}
 
 	// MapToOptions accepts `number.exclude` as either *regexp.Regexp or
@@ -567,8 +791,20 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 			if r.O0 == nil || r.O0.Tin != jsonic.TinTX {
 				return
 			}
-			if !isValidIdentifierName(r.O0.Src) {
+			name, ok := decodeIdentifierName(r.O0.Src)
+			if !ok {
 				ctx.ParseErr = r.O0
+				return
+			}
+			// A key written with `\uXXXX` escapes resolves to the decoded
+			// text. jsonic's `@pairkey` alt action has already copied the
+			// raw token value into r.U["key"], so update both.
+			if cur, _ := r.O0.Val.(string); cur != name {
+				r.O0.Val = name
+				if r.U == nil {
+					r.U = make(map[string]any, 4)
+				}
+				r.U["key"] = name
 			}
 		})
 	})
