@@ -5,7 +5,8 @@
 # repo-set go.work + node_modules symlinks (admin/scripts/link.sh).
 
 .PHONY: all build test clean build-ts build-go test-ts test-go \
-        clean-ts clean-go publish-ts publish-go tags-go reset
+        clean-ts clean-go publish-ts publish-go tags-go reset \
+        gen-suite-expected check-suite-expected
 
 all: build test
 
@@ -33,10 +34,20 @@ publish-ts: test-ts
 build-go:
 	cd go && go build ./...
 
-test-go:
+# `go test` has no pretest hook (the TS side uses npm's), so verify the
+# generated conformance oracle against the vendored corpus here too. Both
+# suites FAIL LOUDLY if the corpus or the oracle is missing — never skip.
+test-go: check-suite-expected
 	# -count=1: the shared test/spec fixtures live outside the Go module, so
 	# `go test` will happily serve a CACHED pass after they change.
 	cd go && go test -count=1 -v ./...
+
+# Regenerate / verify test/json5-tests-expected.json from test/json5-tests.
+gen-suite-expected:
+	node scripts/gen-json5-expected.js
+
+check-suite-expected:
+	node scripts/gen-json5-expected.js --check
 
 clean-go:
 	cd go && go clean

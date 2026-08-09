@@ -20,6 +20,9 @@
     "directory": "ts"
   },
   "scripts": {
+    "gen-suite-expected": "node ../scripts/gen-json5-expected.js",
+    "check-suite-expected": "node ../scripts/gen-json5-expected.js --check",
+    "pretest": "npm run check-suite-expected",
     "test": "node --enable-source-maps --test \"dist-test/*.test.js\"",
     "test-some": "node --enable-source-maps --test-name-pattern=\"$npm_config_pattern\" --test \"dist-test/*.test.js\"",
     "test-watch": "node --test --watch dist-test/json5.test.js",
