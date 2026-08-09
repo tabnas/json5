@@ -16,10 +16,16 @@ continuations.
 
 Both ports share one grammar file and pass the full official
 [`json5/json5-tests`](https://github.com/json5/json5-tests) corpus — all
-114 fixtures, with the parsed value of every `.json` fixture checked
-against the host language's own JSON parser. One documented deviation
-remains: a literal control character inside a string literal (a raw tab)
-is rejected rather than accepted; see
+114 fixtures — in TypeScript and in Go. Passing means both halves: the 83
+valid fixtures parse **to the expected value**, checked against the ES5
+engine that json5-tests' own README names as the oracle, and the 31
+invalid ones are rejected. A supplementary derived probe — every
+truncated prefix and every trailing-garbage variant of the corpus that
+ES5 itself rejects — confirms neither port auto-closes an unterminated
+document nor silently ignores text after a complete value.
+
+One documented deviation remains: a literal control character inside a
+string literal (a raw tab) is rejected rather than accepted; see
 [`ts/doc/concepts.md`](ts/doc/concepts.md#compliance).
 
 ## Install
