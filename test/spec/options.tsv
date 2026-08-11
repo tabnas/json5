@@ -3,6 +3,6 @@ input	expected	opts
 0b101	5	{"octal":true,"binary":true,"numberSeparator":true}
 1_000	1000	{"octal":true,"binary":true,"numberSeparator":true}
 0x1F	ERROR:unexpected	{"hex":false}
-	ERROR:JSON5
+	ERROR:json5_empty
 	null	{"requireValue":false}
 foo	"foo"	{"strictValue":false}
