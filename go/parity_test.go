@@ -3,235 +3,103 @@
 package tabnasjson5
 
 // parity_test.go — cross-runtime conformance, driven by the shared
-// `test/spec/*.tsv` fixtures at the repo root (see ../test/AGENTS.md), the
-// same convention @tabnas/parser and @tabnas/abnf use.
+// `test/spec/*.tsv` fixtures at the repo root (see ../test/AGENTS.md).
 //
-// ts/test/parity.test.ts discovers and runs the SAME files, so the two
-// implementations cannot drift without one of them going red.
+// The fixture loader, the escape codec, the ERROR:<code> contract and the
+// row loop all come from github.com/tabnas/support/go, whose TypeScript
+// half ts/test/parity.test.ts uses to run the SAME files — so the two
+// implementations cannot drift without one of them going red, and neither
+// can the two loaders.
+//
+// What is left here is only what is specific to json5.
 
 import (
-	"bufio"
 	"encoding/json"
 	"math"
-	"os"
-	"path/filepath"
-	"reflect"
-	"strings"
 	"testing"
 
 	jsonic "github.com/tabnas/jsonic/go"
+	support "github.com/tabnas/support/go"
 )
 
-type specRow struct {
-	file     string
-	lineNo   int
-	input    string
-	expected string
-	opts     string
-}
-
-func specDir() string { return filepath.Join("..", "test", "spec") }
-
-// specUnescape decodes the escape set used in non-JSON columns. Kept
-// byte-identical to the TS loader so both runtimes feed the parser the exact
-// same source text.
-func specUnescape(s string) string {
-	if !strings.Contains(s, `\`) {
-		return s
-	}
-	var b strings.Builder
-	b.Grow(len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c == '\\' && i+1 < len(s) {
-			switch s[i+1] {
-			case 'n':
-				b.WriteByte('\n')
-				i++
-				continue
-			case 'r':
-				b.WriteByte('\r')
-				i++
-				continue
-			case 't':
-				b.WriteByte('\t')
-				i++
-				continue
-			case '\\':
-				b.WriteByte('\\')
-				i++
-				continue
-			}
-		}
-		b.WriteByte(c)
-	}
-	return b.String()
-}
-
-func loadSpec(t *testing.T, path string) []specRow {
-	t.Helper()
-	f, err := os.Open(path)
+// TestSpec runs every fixture in the spec directory. FindSpecDir walks up
+// from the package directory, and Dir discovers the files by listing, so
+// adding a .tsv runs it in both runtimes without touching either runner.
+func TestSpec(t *testing.T) {
+	dir, err := support.FindSpecDir("")
 	if err != nil {
-		t.Fatalf("open %s: %v", path, err)
+		t.Fatal(err)
 	}
-	defer f.Close()
 
-	var rows []specRow
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
-	lineNo := 0
-	for scanner.Scan() {
-		lineNo++
-		if lineNo == 1 {
-			continue // header naming the columns
-		}
-		// Strip the CR of a CRLF line: the TS loader splits on /\r?\n/ and
-		// drops it, so keeping it here would feed the runtimes different bytes.
-		line := strings.TrimSuffix(scanner.Text(), "\r")
-		// A comment line starts with '#' and has no tab; a data row always
-		// has at least one (input + expected), so '#'-leading sources still
-		// work.
-		if line == "" || (strings.HasPrefix(line, "#") && !strings.Contains(line, "\t")) {
-			continue
-		}
-		cols := strings.Split(line, "\t")
-		if len(cols) < 2 {
-			t.Fatalf("%s:%d: expected at least 2 tab-separated columns", path, lineNo)
-		}
-		row := specRow{
-			file:     filepath.Base(path),
-			lineNo:   lineNo,
-			input:    specUnescape(cols[0]),
-			expected: cols[1],
-		}
-		if 3 <= len(cols) {
-			row.opts = cols[2]
-		}
-		rows = append(rows, row)
-	}
-	if err := scanner.Err(); err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	if len(rows) == 0 {
-		t.Fatalf("%s: no cases", path)
-	}
-	return rows
-}
-
-// specLabel is a truncated single-line rendering of the input, so a failure
-// names its case readably.
-func specLabel(s string) string {
-	one := strings.ReplaceAll(s, "\n", " ; ")
-	if 60 < len(one) {
-		return one[:57] + "..."
-	}
-	return one
-}
-
-// jsonRound normalises through JSON so *OrderedMap, map[string]any and the
-// fixture's decoded shape compare structurally.
-func jsonRound(t *testing.T, v any) any {
-	t.Helper()
-	raw, err := json.Marshal(v)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	var out any
-	if err := json.Unmarshal(raw, &out); err != nil {
-		t.Fatalf("unmarshal %s: %v", raw, err)
-	}
-	return out
-}
-
-// checkSpecial handles the `expected` tokens JSON cannot express: JSON5's
-// non-finite numbers (NaN / Infinity / -Infinity) and an absent value
-// (UNDEFINED). The bool reports whether the row used one of them.
-func checkSpecial(t *testing.T, row specRow, got any) bool {
-	t.Helper()
-	var want float64
-	switch row.expected {
-	case "NaN":
-		f, ok := got.(float64)
-		if !ok || !math.IsNaN(f) {
-			t.Errorf("%s:%d: want NaN, got %#v", row.file, row.lineNo, got)
-		}
-		return true
-	case "Infinity":
-		want = math.Inf(1)
-	case "-Infinity":
-		want = math.Inf(-1)
-	case "UNDEFINED":
-		if got != nil && !jsonic.IsUndefined(got) {
-			t.Errorf("%s:%d: want no value, got %#v", row.file, row.lineNo, got)
-		}
-		return true
-	default:
-		return false
-	}
-	if f, ok := got.(float64); !ok || f != want {
-		t.Errorf("%s:%d: want %v, got %#v", row.file, row.lineNo, want, got)
-	}
-	return true
-}
-
-func runSpecFile(t *testing.T, path string) {
-	for _, row := range loadSpec(t, path) {
-		t.Run(specLabel(row.input), func(t *testing.T) {
+	support.Runner{
+		// A fresh parser per row: the `opts` column is per-case, and
+		// plugin options must not leak from one row into the next.
+		ParseRow: func(input string, row *support.Row) (any, error) {
 			opts := map[string]any{}
-			if strings.TrimSpace(row.opts) != "" {
-				if err := json.Unmarshal([]byte(row.opts), &opts); err != nil {
-					t.Fatalf("%s:%d: bad opts JSON %q: %v", row.file, row.lineNo, row.opts, err)
+			if raw := row.Named("opts"); "" != raw {
+				if err := json.Unmarshal([]byte(raw), &opts); err != nil {
+					return nil, err
 				}
 			}
 
 			j := jsonic.Make()
 			if err := j.UseDefaults(Json5, Defaults(), opts); err != nil {
-				t.Fatalf("plugin init: %v", err)
+				return nil, err
 			}
-			// The package-level Parse applies the requireValue rule, which is
-			// what the TS plugin folds into its own tn.parse.
-			got, err := Parse(j, row.input)
+			// The package-level Parse applies the requireValue rule, which
+			// is what the TS plugin folds into its own tn.parse.
+			return Parse(j, input)
+		},
 
-			if strings.HasPrefix(row.expected, "ERROR") {
-				want := strings.TrimPrefix(strings.TrimPrefix(row.expected, "ERROR"), ":")
-				if err == nil {
-					t.Fatalf("%s:%d: expected error, got %v", row.file, row.lineNo, got)
-				}
-				if want != "" && !strings.Contains(err.Error(), want) {
-					t.Fatalf("%s:%d: expected error %q, got %q", row.file, row.lineNo, want, err.Error())
-				}
-				return
+		// JSON cannot express JSON5's non-finite numbers or an absent
+		// value, so the expected column also accepts these bare tokens.
+		// NaN compares equal to itself in the runner's JSON-semantics
+		// comparison, which is why they can be plain expected values
+		// rather than a special case in the loop.
+		//
+		// UNDEFINED is a different result from null. Go returns a bare nil
+		// for both, so it cannot make the distinction TypeScript makes;
+		// specUndefined below folds the engine's sentinel into nil too.
+		ParseExpected: func(expected string, _ *support.Row) (any, error) {
+			switch expected {
+			case "NaN":
+				return math.NaN(), nil
+			case "Infinity":
+				return math.Inf(1), nil
+			case "-Infinity":
+				return math.Inf(-1), nil
+			case "UNDEFINED":
+				return nil, nil
 			}
-			if err != nil {
-				t.Fatalf("%s:%d: unexpected parse error: %v", row.file, row.lineNo, err)
-			}
+			return support.ParseExpect(expected)
+		},
 
-			if checkSpecial(t, row, got) {
-				return
-			}
-
-			var want any
-			if err := json.Unmarshal([]byte(row.expected), &want); err != nil {
-				t.Fatalf("%s:%d: bad expected JSON %q: %v", row.file, row.lineNo, row.expected, err)
-			}
-			if gotVal := jsonRound(t, got); !reflect.DeepEqual(gotVal, want) {
-				t.Errorf("%s:%d:\n  got  %#v\n  want %#v", row.file, row.lineNo, gotVal, want)
-			}
-		})
-	}
+		Normalize: func(v any) any { return jsonFlatten(specUndefined(v)) },
+	}.Dir(t, dir)
 }
 
-// TestSpec auto-discovers every fixture: adding a .tsv runs it in both
-// runtimes without touching either runner.
-func TestSpec(t *testing.T) {
-	files, err := filepath.Glob(filepath.Join(specDir(), "*.tsv"))
+// specUndefined folds the engine's undefined sentinel into a plain nil,
+// which is what an UNDEFINED cell asks for here.
+func specUndefined(v any) any {
+	if nil != v && jsonic.IsUndefined(v) {
+		return nil
+	}
+	return v
+}
+
+// jsonFlatten renders a value as JSON and reads it back as plain
+// map/slice/float64/string/bool/nil. A value that will not marshal is
+// returned as it is — which is what happens to a non-finite number, and
+// is exactly right: NaN and ±Inf reach the comparison intact, where the
+// runner knows how to compare them.
+func jsonFlatten(v any) any {
+	raw, err := json.Marshal(v)
 	if err != nil {
-		t.Fatalf("glob spec dir: %v", err)
+		return v
 	}
-	if len(files) == 0 {
-		t.Fatalf("no spec files under %s", specDir())
+	var out any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return v
 	}
-	for _, path := range files {
-		t.Run(filepath.Base(path), func(t *testing.T) { runSpecFile(t, path) })
-	}
+	return out
 }
