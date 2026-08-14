@@ -1,0 +1,20 @@
+{
+  "$schema": "https://tabnas.dev/schema/plugin.schema.json",
+  "name": "@tabnas/json5",
+  "go": "github.com/tabnas/json5/go",
+  "description": "JSON5 parsing for the tabnas engine.",
+  "base": "@tabnas/jsonic",
+  "engine": "@tabnas/parser",
+  "grammar": "json5-grammar.jsonic",
+  "extensions": [
+    ".json5"
+  ],
+  "specDir": "test/spec",
+  "errorCodes": [
+    "json5_empty",
+    "json5_no_value"
+  ],
+  "docs": "https://tabnas.dev/docs/packages",
+  "repository": "https://github.com/tabnas/json5",
+  "versionSource": "ts/package.json"
+}
