@@ -9,4 +9,19 @@ input	expected	opts
    	ERROR:json5_no_value
 "/* x */"	"/* x */"
 	null	{"requireValue":false}
+# requireValue:false means "a source with no value resolves to the grammar's
+# declared emptyResult", and that has to hold for EVERY no-value source, not
+# only the exactly-empty one. TypeScript short-circuited on `` alone and let
+# whitespace/comment-only sources fall out of the rules as undefined, while Go
+# answered nil for all of them. These rows pin the whole set in both runtimes.
+   	null	{"requireValue":false}
+// only a comment	null	{"requireValue":false}
+/* only a comment */	null	{"requireValue":false}
+// a\n/* b */	null	{"requireValue":false}
+# Not a no-value source: a string whose CONTENTS look like a comment. The
+# scan stops on the leading quote and never looks inside.
+"/* x */"	"/* x */"	{"requireValue":false}
+# An unterminated block comment holds no value either, but the engine's own
+# unterminated_comment is the better diagnosis and must not be swallowed.
+/* x	ERROR:unterminated_comment	{"requireValue":false}
 foo	"foo"	{"strictValue":false}

@@ -547,6 +547,37 @@ const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
       }
       return origStart(src, ...rest)
     }
+  } else {
+    // Without requireValue, a source holding no value must resolve to the SAME
+    // declared empty result that `''` already resolves to.
+    //
+    // It did not. The engine short-circuits only on an EXACTLY empty source
+    // (parser.ts: `if ('' === src)`), returning `cfg.lex.emptyResult` — null,
+    // as this grammar declares. A whitespace- or comments-only source reached
+    // the rules instead, matched no value, and fell out as `undefined`. So
+    // `''` answered null while `'   '` and `'// x'` answered undefined: two
+    // answers to one question, from a single declaration.
+    //
+    // That inconsistency is also the whole of the TS/Go difference recorded
+    // against this option. Go answers nil for every no-value source, `''`
+    // included, so making TypeScript self-consistent removes the divergence
+    // as a side effect, with no change to the port.
+    //
+    // hasValue is reused rather than reimplemented, which keeps its one
+    // subtlety in one place: `/* x` answers YES on purpose, so an unterminated
+    // comment still raises the engine's `unterminated_comment` here instead of
+    // being silently swallowed as "no value".
+    const parser: any = tn.internal().parser
+    const origStart: (...args: any[]) => any = parser.start.bind(parser)
+    parser.start = (src: string, ...rest: any[]) => {
+      if (null != src && '' !== src && !hasValue(src)) {
+        // Delegate to the engine's own empty-source path rather than naming
+        // the value here: the grammar declares emptyResult once, and a second
+        // copy of it would be the next thing to drift out of step.
+        return origStart('', ...rest)
+      }
+      return origStart(src, ...rest)
+    }
   }
 }
 
