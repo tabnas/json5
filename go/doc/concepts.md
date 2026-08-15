@@ -208,7 +208,7 @@ differ where the languages differ:
 | String | `string` | `string` |
 | Boolean | `boolean` | `bool` |
 | `null` | `null` | `nil` |
-| Empty input (`requireValue: false`) | `undefined` | `nil` |
+| No value — empty, whitespace-only or comments-only (`requireValue: false`) | `null` | `nil` |
 | `Infinity` / `NaN` | `Infinity` / `NaN` | `math.Inf(1)` / `math.NaN()` |
 
 ### Numeric overflow

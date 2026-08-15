@@ -145,6 +145,17 @@ function deepEq(actual, expected) {
     assert.deepStrictEqual(actual, expected)
     return
   } catch {}
+
+  // null and undefined must NOT survive the fallback as equal. `v ?? null`
+  // below maps both to null, so a doc example asserting `// => undefined`
+  // against an actual `null` (or the reverse) passed this harness — which is
+  // exactly how guide.md came to document `j.parse('')` as undefined when it
+  // has always been null. The normalisation exists for null-prototype objects;
+  // erasing the null/undefined distinction was collateral, not intent.
+  if ((actual === undefined) !== (expected === undefined)) {
+    assert.deepStrictEqual(actual, expected)
+  }
+
   // Fall back to JSON-normalised compare (null-proto objects, etc.).
   assert.deepStrictEqual(norm(actual), norm(expected))
 }

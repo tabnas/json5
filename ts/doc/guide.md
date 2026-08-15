@@ -124,8 +124,9 @@ j.parse('foo')   // => 'foo'
 ## Allow empty input
 
 JSON5 requires a top-level value, so by default an empty source throws.
-Set `requireValue: false` to let an empty (or whitespace/comment-only)
-source resolve to `undefined`:
+Set `requireValue: false` to let a source with no value — empty,
+whitespace-only, or comments-only — resolve to `null`, the grammar's
+declared empty result:
 
 ```js
 const { Tabnas } = require('@tabnas/parser')
@@ -134,7 +135,14 @@ const { Json5 } = require('@tabnas/json5')
 
 const j = new Tabnas().use(jsonic).use(Json5, { requireValue: false })
 
-j.parse('')   // => undefined
+j.parse('')                     // => null
+j.parse('   ')                  // => null
+j.parse('// only a comment')    // => null
+
+// A source counts as valueless only if the scan says so, and the scan stops
+// at the first character that is neither whitespace nor part of a comment —
+// so a string whose *contents* look like a comment is a value.
+j.parse('"/* x */"')            // => '/* x */'
 ```
 
 ## Handle parse errors
