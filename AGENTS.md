@@ -31,7 +31,7 @@ TypeScript (canonical) and a Go port.
 |---|---|
 | [`ts/`](ts/) | **Canonical** TypeScript implementation — the `@tabnas/json5` package. Plugin in [`ts/src/json5.ts`](ts/src/json5.ts). Imports the engine as `@tabnas/parser` and the base grammar as `@tabnas/jsonic`. |
 | [`go/`](go/) | Go port — `github.com/tabnas/json5/go`. Plugin in [`go/json5.go`](go/json5.go) (exports `Json5`, `Defaults`, `Parse`, `VERSION`). Depends on `github.com/tabnas/jsonic/go` via a `replace` directive (sibling checkout). |
-| [`ts/json5-grammar.jsonic`](ts/json5-grammar.jsonic) | The grammar, **source of truth for both runtimes**. Embedded verbatim into both source files. |
+| [`json5-grammar.jsonic`](json5-grammar.jsonic) | The grammar, **source of truth for both runtimes**. Embedded verbatim into both source files. |
 | [`ts/embed-grammar.js`](ts/embed-grammar.js) | Embeds the grammar into `ts/src/json5.ts` AND `go/json5.go`. |
 | [`test/json5-tests/`](test/json5-tests/) | Vendored official JSON5 conformance corpus, run by both suites. |
 | [`test/json5-tests-expected.json`](test/json5-tests-expected.json) | GENERATED expected-VALUE oracle for that corpus, plus the derived leniency probes. Both suites assert against it. Do not hand-edit. |
@@ -70,7 +70,7 @@ this repo and build their TS first. CI does this for you (see below).
 **TypeScript is canonical. Go is a port of it.** When you change
 behaviour:
 
-1. Change `ts/json5-grammar.jsonic` (for grammar changes — see the embed
+1. Change `json5-grammar.jsonic` (for grammar changes — see the embed
    section) or `ts/src/json5.ts` (for code-level overrides) first.
 2. Port the same change to `go/json5.go`.
 3. Add/extend a fixture in `test/spec/*.tsv` so both runtimes assert the
@@ -207,7 +207,7 @@ and fails under `GOWORK=off` until the engine is republished.
 
 ## The grammar is embedded — never hand-edit the embedded block
 
-`ts/json5-grammar.jsonic` is embedded verbatim into **both**
+`json5-grammar.jsonic` is embedded verbatim into **both**
 `ts/src/json5.ts` and `go/json5.go`, between these markers:
 
 ```
@@ -216,7 +216,7 @@ and fails under `GOWORK=off` until the engine is republished.
 // --- END EMBEDDED json5-grammar.jsonic ---
 ```
 
-Edit `ts/json5-grammar.jsonic`, then run the embed step. Never edit the
+Edit `json5-grammar.jsonic`, then run the embed step. Never edit the
 text between the markers by hand — it will be overwritten.
 
 ```bash
