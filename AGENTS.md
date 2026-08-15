@@ -436,7 +436,7 @@ This package declares two error codes, in `json5-grammar.jsonic` under
 | Code | Declared for |
 | --- | --- |
 | `json5_empty` | empty source — JSON5 requires a top-level value; raised by the `requireValue` guard (on by default) in both runtimes |
-| `json5_no_value` | a source with no top-level value — declared in the catalogue, but **no code path raises it today** (see the coverage gap below) |
+| `json5_no_value` | a source that parses to no top-level value because it is only whitespace and comments (`// x`, `/* x */`, `   `); raised by the same `requireValue` guard |
 
 It also *raises* codes it inherits from the engine and from
 `@tabnas/jsonic` — `unexpected` is exercised by fixtures here. Inherited
@@ -455,18 +455,32 @@ The machine-readable list is [`tabnas.plugin.json`](tabnas.plugin.json)
 pins with `ERROR:<code>`, and two runtimes that reject the same input with
 different codes have agreed on nothing.
 
-### Known coverage gap
+### The requireValue guard
 
-`json5_empty` is exercised by a fixture
-([`test/spec/options.tsv`](test/spec/options.tsv) pins
-`ERROR:json5_empty`), but **`json5_no_value` is declared and never
-raised**: the `requireValue` guard raises only `json5_empty`, and no other
-code path in either runtime (or in the engine) produces `json5_no_value` —
-a whitespace-and-comments-only source fails with an engine code instead.
-The code is dead as well as unpinned. Either wire it up (raise it where the
-catalogue's description applies, and pin it with a `test/spec` row) or drop
-it from the catalogue; both are behaviour-adjacent changes, so do either as
-its own change rather than as documentation.
+Both codes come from the same guard, and both are pinned by fixtures in
+[`test/spec/options.tsv`](test/spec/options.tsv):
+
+| Source | Code |
+| --- | --- |
+| `""` | `json5_empty` |
+| only whitespace and/or comments | `json5_no_value` |
+
+`json5_no_value` used to be declared and raised by nothing — a
+comments-only source failed with a generic engine code instead. It is
+raised now, by a `hasValue` scan in each runtime (`ts/src/json5.ts`,
+`go/json5.go`) that must be kept in step.
+
+**That scan does not lex or parse, and must not start.** It looks for the
+first character that is neither whitespace nor part of a comment and stops
+there. The trap it is written to avoid is a source like `"/* x */"` — a
+valid JSON5 *string* whose contents look like a comment. A "strip the
+comments and see what is left" implementation reports that as empty and
+rejects a valid document; this one sees a leading quote, stops, and never
+looks inside. There is a fixture for exactly that input.
+
+An unterminated block comment (`/* x`) deliberately answers "has a value",
+so the engine's more specific `unterminated_comment` is what the reader
+gets rather than being shadowed by `json5_no_value`.
 
 ## Untrusted input
 

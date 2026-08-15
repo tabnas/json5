@@ -842,19 +842,104 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 // with requireValue a direct j.Parse("") still fails, but with the
 // engine's generic "unexpected" error rather than "json5_empty".
 func Parse(j *jsonic.Jsonic, src string) (any, error) {
-	if src == "" {
-		if rv, ok := j.Decoration(requireValueMark).(bool); ok && rv {
-			return nil, json5EmptyError(j)
+	if rv, ok := j.Decoration(requireValueMark).(bool); ok && rv {
+		if src == "" {
+			return nil, json5ValueError(j, "json5_empty")
+		}
+		if !hasValue(src) {
+			return nil, json5ValueError(j, "json5_no_value")
 		}
 	}
 	return j.Parse(src)
 }
 
-// json5EmptyError builds the json5_empty error from the message and hint
-// templates the grammar registers on the instance config.
-func json5EmptyError(j *jsonic.Jsonic) error {
+// hasValue reports whether src contains anything that could begin a
+// value, as opposed to only whitespace and comments. JSON5 requires a
+// top-level value, and a comments-only document is exactly what
+// json5_no_value names.
+//
+// This deliberately does NOT lex or parse. It only has to find the FIRST
+// character that is neither whitespace nor part of a comment, and stop
+// there -- which is what makes it safe. The trap in a naive "strip the
+// comments and see what is left" is a source like `"/* x */"`: a valid
+// JSON5 *string* whose contents look like a comment, which stripping
+// would wrongly report as empty. Here the leading quote is simply a
+// non-trivia character, so the scan stops on it and answers true without
+// ever looking inside.
+//
+// An unterminated block comment answers TRUE on purpose. `/* x` contains
+// no value, but the engine's own unterminated_comment is the more useful
+// diagnostic and this declines to shadow it.
+//
+// Mirrors hasValue in ts/src/json5.ts; keep the two in step.
+func hasValue(src string) bool {
+	// Decoded to runes because the whitespace JSON5 accepts is not all
+	// ASCII: NBSP, BOM, the Unicode Zs class and U+2028/U+2029 are
+	// multi-byte, and a byte scan would not recognise them.
+	rs := []rune(src)
+	n := len(rs)
+	i := 0
+
+	for i < n {
+		c := rs[i]
+
+		if isJSON5Space(c) {
+			i++
+			continue
+		}
+
+		if c == '/' && i+1 < n {
+			d := rs[i+1]
+			if d == '/' {
+				// Line comment: runs to the next line terminator, or the end.
+				i += 2
+				for i < n && !isJSON5LineEnd(rs[i]) {
+					i++
+				}
+				continue
+			}
+			if d == '*' {
+				end := -1
+				for k := i + 2; k+1 < n; k++ {
+					if rs[k] == '*' && rs[k+1] == '/' {
+						end = k
+						break
+					}
+				}
+				if end < 0 {
+					return true // unterminated: leave it to unterminated_comment
+				}
+				i = end + 2
+				continue
+			}
+		}
+
+		// Anything else begins something. Whether it is a VALID value is
+		// the parser's question, not this one.
+		return true
+	}
+
+	return false
+}
+
+func isJSON5Space(c rune) bool {
+	switch c {
+	case '\t', '\v', '\f', ' ', 0x00A0, 0xFEFF, '\n', '\r', 0x2028, 0x2029:
+		return true
+	}
+	return unicode.Is(unicode.Zs, c)
+}
+
+func isJSON5LineEnd(c rune) bool {
+	return c == '\n' || c == '\r' || c == 0x2028 || c == 0x2029
+}
+
+// json5ValueError builds a requireValue error (json5_empty or
+// json5_no_value) from the message and hint templates the grammar
+// registers on the instance config, so the wording has one source.
+func json5ValueError(j *jsonic.Jsonic, code string) error {
 	e := &jsonic.JsonicError{
-		Code:   "json5_empty",
+		Code:   code,
 		Detail: "JSON5 input must contain a value",
 		Row:    1,
 		Col:    1,

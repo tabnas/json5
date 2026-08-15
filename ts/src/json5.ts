@@ -539,9 +539,82 @@ const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
         err.details = { src }
         throw err
       }
+      if (!hasValue(src)) {
+        const err: any = new Error('JSON5 input must contain a value')
+        err.code = 'json5_no_value'
+        err.details = { src }
+        throw err
+      }
       return origStart(src, ...rest)
     }
   }
+}
+
+// Does this source contain anything that could begin a value, or is it
+// only whitespace and comments? JSON5 requires a top-level value, and a
+// comments-only document is exactly what `json5_no_value` names.
+//
+// This deliberately does NOT lex or parse. It only has to find the FIRST
+// character that is neither whitespace nor part of a comment, and stop
+// there — which is what makes it safe. The trap in a naive "strip the
+// comments and see what is left" is a source like `"/* x */"`: a valid
+// JSON5 *string* whose contents look like a comment, which stripping
+// would wrongly report as empty. Here the leading quote is simply a
+// non-trivia character, so the scan stops on it and answers yes without
+// ever looking inside.
+//
+// An unterminated block comment answers YES on purpose. `/* x` contains
+// no value, but the engine's own `unterminated_comment` is the more
+// useful diagnostic and this declines to shadow it.
+function hasValue(src: string): boolean {
+  const n = src.length
+  let i = 0
+
+  while (i < n) {
+    const c = src[i]
+
+    if (isSpace(c)) {
+      i++
+      continue
+    }
+
+    if ('/' === c && i + 1 < n) {
+      const d = src[i + 1]
+      if ('/' === d) {
+        // Line comment: runs to the next line terminator, or to the end.
+        i += 2
+        while (i < n && !isLineEnd(src[i])) {
+          i++
+        }
+        continue
+      }
+      if ('*' === d) {
+        const end = src.indexOf('*/', i + 2)
+        if (end < 0) {
+          return true // unterminated: leave it to unterminated_comment
+        }
+        i = end + 2
+        continue
+      }
+    }
+
+    // Anything else begins something. Whether it is a VALID value is the
+    // parser's question, not this one.
+    return true
+  }
+
+  return false
+}
+
+// JSON5 whitespace: the ECMAScript set. \s covers the usual suspects
+// including   and ﻿ in a JS regex, but they are named too so
+// the intent survives a regex-engine difference.
+function isSpace(c: string): boolean {
+  return /\s/.test(c) || ' ' === c || '﻿' === c
+}
+
+function isLineEnd(c: string): boolean {
+  return '\n' === c || '\r' === c || ' ' === c || ' ' === c
 }
 
 function isZZJsonicAlt(alt: any): boolean {
