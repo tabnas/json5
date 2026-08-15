@@ -4,5 +4,9 @@ input	expected	opts
 1_000	1000	{"octal":true,"binary":true,"numberSeparator":true}
 0x1F	ERROR:unexpected	{"hex":false}
 	ERROR:json5_empty
+// only a comment	ERROR:json5_no_value
+/* only a comment */	ERROR:json5_no_value
+   	ERROR:json5_no_value
+"/* x */"	"/* x */"
 	null	{"requireValue":false}
 foo	"foo"	{"strictValue":false}
