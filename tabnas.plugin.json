@@ -10,6 +10,17 @@
     ".json5"
   ],
   "specDir": "test/spec",
+  "clib": {
+    "dir": "go/clib",
+    "library": "libtabnasjson5",
+    "abi": "v1",
+    "errorCodes": [
+      "usage",
+      "grammar",
+      "handle",
+      "internal"
+    ]
+  },
   "errorCodes": [
     "json5_empty",
     "json5_no_value"
