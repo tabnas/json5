@@ -9,6 +9,16 @@
   "extensions": [
     ".json5"
   ],
+  "languageId": "json5",
+  "pluginKind": "grammar",
+  "grammarKind": "closure",
+  "lexStream": "clean",
+  "syncGroups": [
+    "end",
+    "comma",
+    "close",
+    "sync"
+  ],
   "specDir": "test/spec",
   "clib": {
     "dir": "go/clib",
