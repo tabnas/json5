@@ -310,7 +310,11 @@ Two more JSON5 tightenings live in the grammar file:
 - `options: rule: { exclude: 'imp' finish: false }` — jsonic auto-closes
   any rule still open at end of source, which would read `{a:1` as
   `{"a":1}`. JSON5 requires the closing brace, so `finish: false` turns
-  that off and an unterminated map/list is an `end_of_source` error.
+  that off and an unterminated map/list is an `end_of_source` error —
+  except when the source ends immediately after `[` or `:` (trailing
+  whitespace ignored), which reports `unexpected` instead. "Ends where a
+  value could follow" is NOT the rule: `[1,` is `end_of_source` while
+  `[1,[` is `unexpected`, and `{` alone is `end_of_source`.
 
 ### Number shapes the built-in lexer misses are matched by regex value-defs
 
@@ -439,16 +443,23 @@ This package declares two error codes, in `json5-grammar.jsonic` under
 | `json5_no_value` | a source that parses to no top-level value because it is only whitespace and comments (`// x`, `/* x */`, `   `); raised by the same `requireValue` guard |
 
 It also *raises* codes it inherits from the engine and from
-`@tabnas/jsonic` — `unexpected` is exercised by fixtures here. Inherited
-codes are not redeclared; overriding one means adding it to the `error`
-table, which is a deliberate behaviour change.
+`@tabnas/jsonic` — `unexpected` and `end_of_source` are both exercised by
+fixtures here, the latter pinned by seven unterminated-structure rows in
+`arrays.tsv` and `objects.tsv`. Inherited codes are not redeclared;
+overriding one means adding it to the `error` table, which is a deliberate
+behaviour change.
 
 Many rejection rows are a weaker contract: `test/spec/arrays.tsv`,
 `comments.tsv`, `keys.tsv`, `numbers.tsv`, `objects.tsv` and
 `strings.tsv` carry bare `ERROR` cells, which assert that a document is
 rejected but not with which code — either runtime could change the code it
 raises without a test going red. Tightening those rows to `ERROR:<code>`
-is an A3/A4 conversion target.
+is an A3/A4 conversion target. The unterminated-structure rows in
+`arrays.tsv` and `objects.tsv` have been converted; the remaining 22 bare
+cells (`keys.tsv`, `strings.tsv`, `numbers.tsv`, `comments.tsv`, and the
+two `val`-position rows noted in the fixtures) were each confirmed to raise
+`unexpected` identically in both runtimes, so they are tightenable on the
+same evidence.
 
 The machine-readable list is [`tabnas.plugin.json`](tabnas.plugin.json)
 (`errorCodes`). Keep the two in step: the code is the contract a fixture

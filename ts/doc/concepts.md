@@ -76,7 +76,11 @@ jsonic is deliberately more permissive than JSON5. The plugin makes it
 - **No end-of-source auto-close.** jsonic closes any rule still open when
   the source runs out, so bare jsonic reads `{a:1` as `{"a":1}`. JSON5
   requires the closing brace, so the grammar sets `rule.finish: false`
-  and an unterminated map or list is an `end_of_source` error.
+  and an unterminated map or list is an `end_of_source` error — except
+  when the source ends immediately after `[` or `:` (trailing whitespace
+  ignored), which reports `unexpected` instead. "Ends where a value could
+  follow" is NOT the rule: `[1,` is `end_of_source` while `[1,[` is
+  `unexpected`, and `{` alone is `end_of_source`.
 - **Stricter numbers.** Octal, binary, and digit separators are off by
   default, and a regex exclusion (`^[+-]?0[0-9]`) rejects JS-style
   leading-zero integers like `010` and `080`.
