@@ -1,0 +1,53 @@
+input	ts	go	why
+# divergent.tsv — where this repo's two ports DISAGREE, executed by both.
+#
+#   input  JSON5 source. Escapes \n \r \t \\ are decoded, as in test/spec.
+#   ts,go  what each port produces: a JSON value, or ERROR:<code>, or
+#          ERROR:<code>@<row>:<col> when the position is the disagreement.
+#   why    the audit item, and where the repair lives.
+#
+# NOT A FIXTURE. A fixture fails when behaviour REGRESSES. This fails BOTH
+# ways: when a port is repaired to agree with the other, the row still
+# claims they differ, so the suite goes red and names the row to delete. A
+# divergence recorded as a passing test of current behaviour survives its
+# own repair — the port is fixed, the test is updated, and the record now
+# describes something that no longer happens, with nothing red. That is how
+# the 2026-08 audit found 29 recorded claims contradicted by execution.
+#
+# MEASURED 2026-08-19 by running both ports, not transcribed from the
+# audit. Every row below was produced by tasks/ax-parity-probe.js in the
+# admin repo and then re-measured directly in each port.
+#
+# --- Audit P3: malformed escapes. parseInt used as a validator ------------
+# TypeScript stops at the first non-hex character and returns what it read,
+# so it ACCEPTS these and invents a character that was never in the input.
+# Go rejects. The repair is in the ENGINE (tabnas/parser#123), not here:
+# json5's own decodeIdentifierName validates with hex4Re BEFORE parseInt,
+# which is exactly the guard the engine's string matcher lacks.
+{a:"p\\u00st"}	{"a":"p\u0000"}	ERROR:invalid_unicode	P3 parser#123
+{a:"\\x4z"}	{"a":"\u0004"}	ERROR:invalid_ascii	P3 parser#123
+{a:"\\u12zz"}	{"a":"\u0012"}	ERROR:invalid_unicode	P3 parser#123
+{a:"\\u 123"}	{"a":"ģ"}	ERROR:invalid_unicode	P3 parser#123
+{a:"\\u+123"}	{"a":"ģ"}	ERROR:invalid_unicode	P3 parser#123
+# Both reject, for different reasons. Agreeing that an input is invalid is
+# not agreeing.
+{a:"\\u1"}	ERROR:unterminated_string	ERROR:invalid_unicode	P3 parser#123
+# --- Audit P1/P2: the text matcher's ender omits the quote characters -----
+# A quote ends a text run in Go and does not in TypeScript, so the two
+# reach different rules and report different codes. Engine repair:
+# tabnas/parser#128.
+{a:b"c}	ERROR:unexpected	ERROR:unterminated_string	P1/P2 parser#128
+{a:1"}	ERROR:unexpected	ERROR:unterminated_string	P1/P2 parser#128
+a"b	ERROR:unexpected	ERROR:unterminated_string	P1/P2 parser#128
+# --- Astral column: RECORDED and PERMANENT, not a defect -----------------
+# TypeScript counts UTF-16 code units, so an astral character advances the
+# column by two; Go counts runes and reports one less. This is the argued
+# entry in parser's DIVERGENCE.md, and it is here so that it is EXECUTED
+# rather than only described. If either port changes, this row goes red.
+#
+# Note the direction. toml's position rows go the OTHER way (Go reporting
+# HIGHER, because it advances in bytes) and that IS a defect — audit P5,
+# repaired by tabnas/parser#124. Same symptom, opposite sign, opposite
+# verdict.
+["😀" 1]	ERROR:unexpected@1:7	ERROR:unexpected@1:6	astral column, permanent
+["ab😀cd" 1]	ERROR:unexpected@1:11	ERROR:unexpected@1:10	astral column, permanent
