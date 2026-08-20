@@ -63,12 +63,28 @@ func outcome(src string) string {
 	return string(b)
 }
 
-var positionSuffix = regexp.MustCompile(`@(\d+:\d+)$`)
+// cellPosition matches a trailing `@<row>:<col>` on a fixture cell.
+var cellPosition = regexp.MustCompile(`@(\d+:\d+)$`)
 
-// splitCode turns `unexpected@1:8` into ("unexpected", "1:8"), and
-// `unexpected` into ("unexpected", "").
-func splitCode(code string) (string, string) {
-	if loc := positionSuffix.FindStringSubmatchIndex(code); nil != loc {
+// splitCell reads `ERROR:unexpected@1:8` as ("unexpected", "1:8") and
+// `ERROR:unexpected` as ("unexpected", "").
+//
+// PARSED FROM THE RAW CELL, NOT FROM support.ErrorCode. This used to ask
+// ErrorCode for the code and then look for an `@1:8` suffix on the answer.
+// tabnas/support#12 split the position OUT of that value, so the suffix
+// was no longer there to find: every cell parsed as "pins no position",
+// every pair of rows sharing a code compared EQUAL, and this register
+// silently became rows that assert nothing — the exact failure it exists
+// to catch, arriving through a dependency rather than an edit. It surfaced
+// only because the vacuity check fires before the comparison does.
+//
+// Reading support.ErrorExpect instead would swap one coupling for another
+// and would not compile against the support release this module pins.
+// The cell format is this repo's own contract, so this repo reads it.
+// tabnas/toml#53 repairs the identical defect the same way.
+func splitCell(cell string) (string, string) {
+	code := strings.TrimPrefix(cell, "ERROR:")
+	if loc := cellPosition.FindStringSubmatchIndex(code); nil != loc {
 		return code[:loc[0]], code[loc[2]:loc[3]]
 	}
 	return code, ""
@@ -86,13 +102,8 @@ func sameExpectation(a, b string) bool {
 		if !support.IsErrorExpect(a) || !support.IsErrorExpect(b) {
 			return false
 		}
-		ra, erra := support.ErrorCode(a)
-		rb, errb := support.ErrorCode(b)
-		if nil != erra || nil != errb {
-			return false
-		}
-		ca, pa := splitCode(ra)
-		cb, pb := splitCode(rb)
+		ca, pa := splitCell(a)
+		cb, pb := splitCell(b)
 		if ca != cb {
 			return false
 		}

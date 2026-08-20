@@ -18,27 +18,38 @@ input	ts	go	why
 # audit. Every row below was produced by tasks/ax-parity-probe.js in the
 # admin repo and then re-measured directly in each port.
 #
-# --- Audit P3: malformed escapes. parseInt used as a validator ------------
-# TypeScript stops at the first non-hex character and returns what it read,
-# so it ACCEPTS these and invents a character that was never in the input.
-# Go rejects. The repair is in the ENGINE (tabnas/parser#123), not here:
-# json5's own decodeIdentifierName validates with hex4Re BEFORE parseInt,
-# which is exactly the guard the engine's string matcher lacks.
-{a:"p\\u00st"}	{"a":"p\u0000"}	ERROR:invalid_unicode	P3 parser#123
-{a:"\\x4z"}	{"a":"\u0004"}	ERROR:invalid_ascii	P3 parser#123
-{a:"\\u12zz"}	{"a":"\u0012"}	ERROR:invalid_unicode	P3 parser#123
-{a:"\\u 123"}	{"a":"ģ"}	ERROR:invalid_unicode	P3 parser#123
-{a:"\\u+123"}	{"a":"ģ"}	ERROR:invalid_unicode	P3 parser#123
-# Both reject, for different reasons. Agreeing that an input is invalid is
-# not agreeing.
-{a:"\\u1"}	ERROR:unterminated_string	ERROR:invalid_unicode	P3 parser#123
-# --- Audit P1/P2: the text matcher's ender omits the quote characters -----
-# A quote ends a text run in Go and does not in TypeScript, so the two
-# reach different rules and report different codes. Engine repair:
-# tabnas/parser#128.
-{a:b"c}	ERROR:unexpected	ERROR:unterminated_string	P1/P2 parser#128
-{a:1"}	ERROR:unexpected	ERROR:unterminated_string	P1/P2 parser#128
-a"b	ERROR:unexpected	ERROR:unterminated_string	P1/P2 parser#128
+# --- Audit P3 and P1/P2: all nine rows CLOSED, 2026-08-20 ----------------
+# Nine rows stood here in two blocks. Both engine repairs landed the same
+# day and every row went red, which is what this file is for: it fails when
+# a port is REPAIRED as well as when one regresses.
+#
+# P3 — malformed escapes (five rows, plus one where both rejected for
+# different reasons). TypeScript used parseInt as a validator, stopped at
+# the first non-hex character, and INVENTED a character never in the input:
+#
+#   {a:"p\\u00st"}  ts {"a":"p\u0000"}  -> ERROR:invalid_unicode
+#   {a:"\\x4z"}     ts {"a":"\u0004"}   -> ERROR:invalid_ascii
+#   {a:"\\u12zz"}   ts {"a":"\u0012"}   -> ERROR:invalid_unicode
+#   {a:"\\u 123"}   ts {"a":"\u0123"}   -> ERROR:invalid_unicode
+#   {a:"\\u+123"}   ts {"a":"\u0123"}   -> ERROR:invalid_unicode
+#   {a:"\\u1"}      ts ERROR:unterminated_string -> ERROR:invalid_unicode
+#       tabnas/parser#139 (filed as #123). The engine string matcher now
+#       requires the full fixed-width hex run — the guard json5's own
+#       decodeIdentifierName always had.
+#
+# P1/P2 — a quote ended a text run in Go and not in TypeScript (three rows):
+#
+#   {a:b"c}  go ERROR:unterminated_string -> ERROR:unexpected
+#   {a:1"}   go ERROR:unterminated_string -> ERROR:unexpected
+#   a"b      go ERROR:unterminated_string -> ERROR:unexpected
+#       tabnas/parser#128. ~2/3 of the divergences measured across the
+#       fleet were this shape.
+#
+# MEASURED IN BOTH PORTS BEFORE DELETING, and that mattered: the Go half of
+# this register checks only the `go` column and the TypeScript half only the
+# `ts` column, so the six P3 rows (which closed because TYPESCRIPT moved)
+# were invisible to the Go run, and the three P1/P2 rows were invisible to
+# the TypeScript one. Neither half alone would have found all nine.
 # --- Astral column: RECORDED and PERMANENT, not a defect -----------------
 # TypeScript counts UTF-16 code units, so an astral character advances the
 # column by two; Go counts runes and reports one less. This is the argued
