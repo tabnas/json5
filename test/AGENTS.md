@@ -26,6 +26,47 @@ Results are compared after a JSON round-trip, so key order and the
 `OrderedMap` / null-prototype-object representations do not affect the
 comparison.
 
+## The divergence register — `test/divergent.tsv`
+
+Separate from `spec/`, and read by `ts/test/divergent.test.ts` and
+`go/divergent_test.go` rather than by the shared runner.
+
+It records the places the two ports **disagree**, with a column per port,
+and it is **not a fixture**. A fixture fails when behaviour regresses. This
+fails **both ways**: when a port is repaired to agree with the other, the
+row still claims they differ, so the suite goes red and names the row to
+delete.
+
+That difference is the whole point. A divergence recorded as a passing test
+of current behaviour survives its own repair — the port is fixed, the test
+is updated, and the record now describes something that no longer happens,
+with nothing red. The 2026-08 fleet audit found 29 recorded claims
+contradicted by execution, and a fixture would have preserved every one.
+
+| column | meaning |
+|---|---|
+| `input` | JSON5 source, escape-decoded as in `spec/`. |
+| `ts`, `go` | what each port produces: a JSON value, `ERROR:<code>`, or `ERROR:<code>@<row>:<col>` when the position is the disagreement. |
+| `why` | the audit item, and where the repair lives. |
+
+**Position is opt-in.** A cell with no `@row:col` is satisfied by any
+position; one that has it is compared on both. Most rows here are about the
+code, and pinning the column of every one would make the register fail on
+changes it is not recording.
+
+**Rows are measured, not transcribed.** Every current row was produced by
+`tasks/ax-parity-probe.js` in the admin repo and then re-measured directly
+in each port. Transcribing is how the 29 wrong claims were written.
+
+When a row goes red saying **CLOSED**, delete it — and check whether the
+other rows citing the same repair go with it. Do not edit it to match: that
+records a divergence that no longer exists.
+
+The runners are local for now. `@tabnas/support` gains this mechanism in
+`tabnas/support#14`, and the vocabulary here is deliberately the one that PR
+standardises, so adopting it deletes the two runners and leaves the fixture
+untouched.
+
 ## Who runs what
 
 - TypeScript: `ts/test/parity.test.ts` — `makeRunner(...).dir(...)`.
