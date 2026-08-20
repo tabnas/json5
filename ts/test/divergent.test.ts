@@ -25,7 +25,7 @@ import Path from 'node:path'
 import { Tabnas } from '@tabnas/parser'
 import { jsonic } from '@tabnas/jsonic'
 import {
-  findSpecDir, loadSpec, isErrorExpect, errorCode, parseExpect, equalValue,
+  findSpecDir, loadSpec, isErrorExpect, parseExpect, equalValue,
 } from '@tabnas/support'
 
 import { Json5 } from '../dist/json5'
@@ -64,8 +64,8 @@ function same(a: string, b: string): boolean {
   if (isErrorExpect(a) || isErrorExpect(b)) {
     if (!isErrorExpect(a) || !isErrorExpect(b)) return false
 
-    const [ca, pa] = split(errorCode(a))
-    const [cb, pb] = split(errorCode(b))
+    const [ca, pa] = splitCell(a)
+    const [cb, pb] = splitCell(b)
     if (ca !== cb) return false
 
     // POSITION IS OPT-IN. A cell that pins no position is satisfied by any
@@ -86,7 +86,19 @@ function same(a: string, b: string): boolean {
 
 
 // `unexpected@1:8` -> ['unexpected', '1:8']; `unexpected` -> ['unexpected', ''].
-function split(code: string): [string, string] {
+// PARSED FROM THE RAW CELL, NOT FROM errorCode. This used to ask errorCode
+// for the code and then look for an `@1:8` suffix on the answer.
+// tabnas/support#12 split the position OUT of that value, so the suffix was
+// no longer there to find: every cell parsed as "pins no position", every
+// pair of rows sharing a code compared EQUAL, and this register silently
+// became rows that assert nothing — the exact failure it exists to catch,
+// arriving through a dependency rather than an edit.
+//
+// The cell format is this repo's own contract, so this repo reads it.
+// go/divergent_test.go is repaired the same way, as are tabnas/toml#53 and
+// the identical defect there.
+function splitCell(cell: string): [string, string] {
+  const code = cell.startsWith('ERROR:') ? cell.slice('ERROR:'.length) : cell
   const at = code.match(/@(\d+:\d+)$/)
   return at ? [code.slice(0, at.index), at[1]] : [code, '']
 }
