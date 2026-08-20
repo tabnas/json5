@@ -63,7 +63,7 @@ func TestQuoteDoesNotEndATextRun(t *testing.T) {
 	case repaired:
 		t.Logf("linked engine has parser#128: a quote does not end a text run")
 	case before:
-		t.Logf("linked engine predates parser#128: a quote still ends a text " +
+		t.Logf("linked engine predates parser#128: a quote still ends a text "+
 			"run, so this port reports %s where TypeScript reports %s. CI links "+
 			"the sibling checkouts and sees the repair; this is what go.mod's "+
 			"parser release still does.", before, repaired)
