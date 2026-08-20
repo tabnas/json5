@@ -50,6 +50,16 @@ input	ts	go	why
 # `ts` column, so the six P3 rows (which closed because TYPESCRIPT moved)
 # were invisible to the Go run, and the three P1/P2 rows were invisible to
 # the TypeScript one. Neither half alone would have found all nine.
+#
+# ALL NINE INPUTS ARE STILL EXECUTED, in spec/strings.tsv. A retired row
+# whose input survives only in a comment enforces nothing: if a port started
+# accepting an invalid escape again, or a quote ended a text run again — or
+# both ports regressed together — nothing here would notice. The six P3
+# rows carry their exact codes. The three P1/P2 rows carry a bare ERROR,
+# because that fixture must hold against the parser release go.mod DECLARES
+# as well as the sibling checkouts CI links, and parser#128 is Go-only and
+# unreleased; their code is pinned instead in go/text_ender_test.go and
+# ts/test/text-ender.test.ts.
 # --- Astral column: RECORDED and PERMANENT, not a defect -----------------
 # TypeScript counts UTF-16 code units, so an astral character advances the
 # column by two; Go counts runes and reports one less. This is the argued
