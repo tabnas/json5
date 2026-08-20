@@ -22,9 +22,11 @@
   "scripts": {
     "gen-suite-expected": "node ../scripts/gen-json5-expected.js",
     "check-suite-expected": "node ../scripts/gen-json5-expected.js --check",
-    "pretest": "npm run check-suite-expected",
+    "pretest": "npm run build && npm run check-suite-expected",
     "test": "node --enable-source-maps --test \"dist-test/*.test.js\"",
+    "pretest-some": "npm run build",
     "test-some": "node --enable-source-maps --test-name-pattern=\"$npm_config_pattern\" --test \"dist-test/*.test.js\"",
+    "pretest-watch": "npm run build",
     "test-watch": "node --test --watch dist-test/json5.test.js",
     "embed": "node embed-grammar.js",
     "watch": "tsc --build src test -w",
