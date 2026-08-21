@@ -14,6 +14,8 @@ commas, single quotes, hex / `Infinity` / `NaN` numbers, leading- and
 trailing-decimal numbers, explicit `+` signs, and string line
 continuations.
 
+Docs, guides, the error reference and the playground: **[tabnas.dev](https://tabnas.dev)**.
+
 Both ports share one grammar file and pass the full official
 [`json5/json5-tests`](https://github.com/json5/json5-tests) corpus — all
 114 fixtures — in TypeScript and in Go. Passing means both halves: the 83
