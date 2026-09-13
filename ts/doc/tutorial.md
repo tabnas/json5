@@ -1,4 +1,4 @@
-# Tutorial — your first JSON5 parse
+# Tutorial: your first JSON5 parse
 
 This walks you from nothing to a working parse with the `@tabnas/json5`
 plugin. Follow it in order; each step builds on the last. When you
@@ -36,7 +36,7 @@ const j = new Tabnas().use(jsonic).use(Json5)
 j.parse('{a:1}')   // => { a: 1 }
 ```
 
-You wrote `{a:1}` — an unquoted key, no spaces — and got back an
+You wrote `{a:1}` (an unquoted key, no spaces) and got back an
 object. Ordinary JSON parses too, so `j.parse('{"a":1}')` gives the same
 result. The instance is reusable: build it once, call `.parse()` as many
 times as you like.
@@ -54,7 +54,7 @@ const j = new Tabnas().use(jsonic).use(Json5)
 ## 3. Parse a real JSON5 document
 
 JSON5 is JSON with the comfortable parts of JavaScript object literals
-added back. Here is a document that uses several of them at once —
+added back. Here is a document that uses several of them at once:
 comments, an unquoted key, a single-quoted string, a trailing comma:
 
 ```js
@@ -122,6 +122,6 @@ caret under the source. See [handle parse errors](guide.md#handle-parse-errors).
 
 ## Where to go next
 
-- [How-to guide](guide.md) — focused recipes (options, errors, JSON5-strictness).
-- [Reference](reference.md) — the API, every option, and the accepted syntax.
-- [Concepts](concepts.md) — how the plugin builds JSON5 on the engine.
+- [How-to guide](guide.md). Focused recipes (options, errors, JSON5-strictness).
+- [Reference](reference.md). The API, every option, and the accepted syntax.
+- [Concepts](concepts.md). How the plugin builds JSON5 on the engine.

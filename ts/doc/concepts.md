@@ -1,7 +1,7 @@
 # Concepts
 
 Background on how `@tabnas/json5` is put together, and why. This is
-understanding-oriented reading — for steps see the
+understanding-oriented reading; for steps see the
 [tutorial](tutorial.md) and [how-to guide](guide.md), and for exact
 signatures and options see the [reference](reference.md).
 
@@ -10,11 +10,11 @@ signatures and options see the [reference](reference.md).
 The plugin is not a parser. It is a *configuration* of one. Three layers
 stack up:
 
-- the **engine** — `@tabnas/parser` — a rule-based parser over a
+- the **engine**, `@tabnas/parser`, a rule-based parser over a
   configurable, matcher-based lexer. It knows nothing about JSON;
-- the **relaxed-JSON grammar** — `@tabnas/jsonic` — the rules that turn
+- the **relaxed-JSON grammar**, `@tabnas/jsonic`, the rules that turn
   `a:1,b:2` into an object, comments, trailing commas, and so on;
-- the **JSON5 plugin** — this package — which constrains and extends the
+- the **JSON5 plugin**, this package, which constrains and extends the
   jsonic grammar so that what is accepted is exactly JSON5.
 
 That is why the install order is `new Tabnas().use(jsonic).use(Json5)`:
@@ -31,7 +31,7 @@ The grammar lives once in the repository-root `json5-grammar.jsonic`. A
 build step (`embed-grammar.js`) inlines it verbatim into both
 `ts/src/json5.ts` and `go/json5.go` between marker comments, so the two
 language ports parse the *same* spec and cannot drift. The file is
-itself written in jsonic syntax — a relaxed-JSON document describing
+itself written in jsonic syntax: a relaxed-JSON document describing
 engine options.
 
 At plugin-install time the flow is:
@@ -67,7 +67,7 @@ jsonic is deliberately more permissive than JSON5. The plugin makes it
   (`#NR`), so `{10:1}` is rejected.
 - **Identifier-name keys.** An unquoted key must be a valid ECMAScript
   5.1 `IdentifierName`. A `pair` after-open validator checks each
-  unquoted key's source and rejects ones that are not — this is the test
+  unquoted key's source and rejects ones that are not: this is the test
   that lets `{while:true}` through but stops `{10:1}` and symbol keys.
   The same validator *decodes* `\uXXXX` escapes in the key, so
   `{sig\u03A3ma:1}` has the key `sigΣma`; an escape that would produce a
@@ -76,7 +76,7 @@ jsonic is deliberately more permissive than JSON5. The plugin makes it
 - **No end-of-source auto-close.** jsonic closes any rule still open when
   the source runs out, so bare jsonic reads `{a:1` as `{"a":1}`. JSON5
   requires the closing brace, so the grammar sets `rule.finish: false`
-  and an unterminated map or list is an `end_of_source` error — except
+  and an unterminated map or list is an `end_of_source` error, except
   when the source ends immediately after `[` or `:` (trailing whitespace
   ignored), which reports `unexpected` instead. "Ends where a value could
   follow" is NOT the rule: `[1,` is `end_of_source` while `[1,[` is
@@ -88,7 +88,7 @@ jsonic is deliberately more permissive than JSON5. The plugin makes it
 ## The lexer-check hooks
 
 Three things JSON5 needs cannot be expressed as plain lexer options, so
-the plugin installs **lex-check** hooks — small functions the lexer calls
+the plugin installs **lex-check** hooks: small functions the lexer calls
 at each step:
 
 - **String line continuations.** A backslash immediately followed by a
@@ -100,7 +100,7 @@ at each step:
   rewrite is context-aware: a `LineContinuation` belongs to the *string*
   grammar, so the scan copies comments and unquoted text through
   untouched. A blanket replace would extend a `//` comment over the next
-  line, and would quietly accept `[1,\<newline>2]`.
+  line, and would silently accept `[1,\<newline>2]`.
 - **Identifier-aware text rejection.** A `text.check` hook stops the
   lexer at any unquoted run that neither begins a valid JSON5
   `IdentifierStart` nor matches a registered value keyword / regex. This
@@ -111,7 +111,7 @@ at each step:
   accepted. JSON5 inherits ES5.1's stricter rule, where a `DecimalDigit`
   is an `EscapeCharacter` and the code-point form does not exist, so a
   `string.check` hook rejects `\1`..`\9`, `\0` followed by a digit, and
-  `\u{XXXX}`. (`\xHH` and `\uXXXX` stay — JSON5 has both.)
+  `\u{XXXX}`. (`\xHH` and `\uXXXX` stay, since JSON5 has both.)
 
 ## Two regex value defs
 
@@ -119,9 +119,9 @@ Two number shapes are not recognised by the engine's built-in number
 matcher, so they are registered as regex-matched value definitions in the
 grammar (and so behave identically in both ports):
 
-- **Trailing-decimal-with-exponent** (`5.e4`) — matched by
+- **Trailing-decimal-with-exponent** (`5.e4`). Matched by
   `^[+-]?[0-9]+\.[eE][+-]?[0-9]+` and parsed with `parseFloat`.
-- **Uppercase `0X` hex** (`0X1f`) — matched by `^[+-]?0X[0-9a-fA-F]+` and
+- **Uppercase `0X` hex** (`0X1f`). Matched by `^[+-]?0X[0-9a-fA-F]+` and
   parsed as a base-16 integer.
 
 ## Why `Infinity` / `NaN` are injected in code
@@ -134,7 +134,7 @@ So the plugin injects the six keywords (`Infinity`, `+Infinity`,
 `-Infinity`, `NaN`, `+NaN`, `-NaN`) into the value defs at install time,
 gated by the `infinity` option.
 
-## Accepted vs rejected — the edge cases
+## Accepted vs rejected: the edge cases
 
 | Input | Result | Why |
 |---|---|---|
@@ -148,7 +148,7 @@ gated by the `infinity` option.
 | `5.e4` | accepted → `50000` | Regex value def. |
 | `05.e4` | rejected | The regex value def excludes a leading zero too. |
 | `0X1f` | accepted → `31` | Uppercase-hex regex value def. |
-| `{a:1` | rejected | `rule.finish: false` — every brace must be closed. |
+| `{a:1` | rejected | `rule.finish: false`, so every brace must be closed. |
 | `{sig\u03A3ma:1}` | accepted → `{sigΣma:1}` | Identifier escapes are decoded. |
 | `"\1"` | rejected | A `DecimalDigit` is not a `NonEscapeCharacter`. |
 | `"\u{41}"` | rejected | The code-point escape is ES2015, not ES5.1. |

@@ -29,7 +29,7 @@ onto a `*tabnasjsonic.Jsonic` instance with `UseDefaults`.
 | `Json5` | `func(j *tabnasjsonic.Jsonic, opts map[string]any) error` | The plugin function. Pass it to `UseDefaults`. |
 | `Defaults()` | `func() map[string]any` | Returns a fresh copy of the default option map (strict JSON5). |
 | `Parse(j, src)` | `func(j *tabnasjsonic.Jsonic, src string) (any, error)` | Parse with the `requireValue` empty-input guard (TS wraps `parser.start` for this): an empty source errors with code `json5_empty`. All other input delegates to `j.Parse(src)`. |
-| `VERSION` | `const string` | The plugin's semantic version. Always equal to `ts/package.json` "version" — `TestVersionMatchesPackageJSON` fails the build if they drift. |
+| `VERSION` | `const string` | The plugin's semantic version. Always equal to `ts/package.json` "version"; `TestVersionMatchesPackageJSON` fails the build if they drift. |
 
 Parsing is done through the jsonic instance you install the plugin on
 (`j.Parse(src)`); use `tabnasjson5.Parse(j, src)` when you need the TS
@@ -121,7 +121,7 @@ over `Defaults()`.
 
 `infinity` and `hex` default to `true` because they are part of the
 JSON5 spec. `octal`, `binary`, `numberSeparator`, `hashComment`, and
-`backtickString` default to `false` because they are *not* JSON5 — they
+`backtickString` default to `false` because they are *not* JSON5: they
 are opt-in extensions.
 
 ## Return types
@@ -142,28 +142,28 @@ Numbers are always `float64`, matching `encoding/json`.
 ## Accepted syntax
 
 The default (strict-JSON5) configuration. The same syntax tables apply to
-both ports — see the TS [reference](../../ts/doc/reference.md#accepted-syntax)
+both ports; see the TS [reference](../../ts/doc/reference.md#accepted-syntax)
 for the full set with examples. In summary:
 
-- **Top level** — exactly one value. No implicit lists (`1,2,3`) or maps
+- **Top level**. Exactly one value. No implicit lists (`1,2,3`) or maps
   (`a:1`). Every `{` / `[` must be closed: `{a:1` is an error.
-- **Objects** — double-, single-, or unquoted (identifier-name) keys;
+- **Objects**. Double-, single-, or unquoted (identifier-name) keys;
   trailing commas; duplicate keys take the last value; numeric keys
   (`{10:1}`) rejected. An identifier key may spell a character as a
   `\uXXXX` escape and is stored DECODED (`{sig\u03A3ma:1}` →
   `{"sigΣma":1}`).
-- **Arrays** — comma-separated, trailing comma allowed.
-- **Strings** — single- or double-quoted, ES5.1 escapes plus line
+- **Arrays**. Comma-separated, trailing comma allowed.
+- **Strings**. Single- or double-quoted, ES5.1 escapes plus line
   continuations (backslash + newline → joined, inside strings only).
   `\1`..`\9`, `\0` followed by a digit, and the ES2015 `\u{...}` form
   are rejected; a literal control character inside a string is rejected
-  too (a known deviation — use `"\t"`).
-- **Numbers** — decimal and hex, optional leading `+`/`-`, leading or
+  too (a known deviation; use `"\t"`).
+- **Numbers**. Decimal and hex, optional leading `+`/`-`, leading or
   trailing decimal point, exponents; JS-style leading-zero integers
   (`010`, `080`) rejected.
-- **Keywords** — `true`, `false`, `null`, and the `Infinity`/`NaN`
+- **Keywords**: `true`, `false`, `null`, and the `Infinity`/`NaN`
   family.
-- **Comments** — `//` and `/* */`.
+- **Comments**: `//` and `/* */`.
 
 ## Errors
 
@@ -183,7 +183,7 @@ if errors.As(err, &je) {
 
 | Field | Type | Description |
 |---|---|---|
-| `Code` | `string` | Error code, e.g. `"unexpected"`, `"unterminated_string"`. |
+| `Code` | `string` | Error code, for example `"unexpected"`, `"unterminated_string"`. |
 | `Row` | `int` | 1-based line of the error. |
 | `Col` | `int` | 1-based column of the error. |
 | `Pos` | `int` | 0-based character position. |

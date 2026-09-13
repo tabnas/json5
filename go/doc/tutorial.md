@@ -1,4 +1,4 @@
-# Tutorial — your first JSON5 parse (Go)
+# Tutorial: your first JSON5 parse (Go)
 
 This walks you from nothing to a working parse with the `json5` plugin
 for the Go port of tabnasjsonic. Follow it in order; each step builds on the
@@ -47,7 +47,7 @@ func main() {
 }
 ```
 
-Run it with `go run .`. You wrote `{a:1}` — an unquoted key, no spaces —
+Run it with `go run .`. You wrote `{a:1}` (an unquoted key, no spaces)
 and got back a map. Ordinary JSON parses too, so
 ``j.Parse(`{"a":1}`)`` gives the same result. The instance is reusable:
 build it once, call `Parse` as many times as you like.
@@ -81,7 +81,7 @@ is in the [reference](reference.md#return-types).
 ## 4. Parse a real JSON5 document
 
 JSON5 is JSON with the comfortable parts of JavaScript object literals
-added back — comments, unquoted keys, single quotes, trailing commas,
+added back: comments, unquoted keys, single quotes, trailing commas,
 `+`, leading/trailing decimal points, hex, and `Infinity`:
 
 ```go
@@ -118,7 +118,7 @@ Every flag is documented in the [reference](reference.md#options).
 
 ## 6. Catch an error
 
-When the input is not valid JSON5, `Parse` returns an `error` — it never
+When the input is not valid JSON5, `Parse` returns an `error`; it never
 panics. Inspect the structured detail with `errors.As`:
 
 ```go
@@ -138,12 +138,12 @@ if errors.As(err, &je) {
 ```
 
 `err.Error()` renders a formatted message with a caret pointing at the
-source location — useful to show a user. The `*tabnasjsonic.JsonicError`
+source location, which is useful to show a user. The `*tabnasjsonic.JsonicError`
 fields (`Code`, `Row`, `Col`, `Hint`, …) are for your code to branch on.
 
 ## Where to go next
 
-- [How-to guide](guide.md) — focused recipes (options, errors, strictness).
-- [Reference](reference.md) — the API, every option, and accepted syntax.
-- [Concepts](concepts.md) — how the plugin works, and how it differs from
+- [How-to guide](guide.md). Focused recipes (options, errors, strictness).
+- [Reference](reference.md). The API, every option, and accepted syntax.
+- [Concepts](concepts.md). How the plugin works, and how it differs from
   the TypeScript version.
