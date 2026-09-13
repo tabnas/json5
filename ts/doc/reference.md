@@ -22,7 +22,7 @@ The module exports exactly three names:
 | Export | Kind | Description |
 |---|---|---|
 | `Json5` | `Plugin` | The plugin function. Pass it to `engine.use()`. Carries `Json5.defaults` (the default option values). |
-| `VERSION` | `string` | This package's semantic version. Always equal to `package.json` "version" — the version test fails the build if they drift. Mirrored by `VERSION` in the Go port. |
+| `VERSION` | `string` | This package's semantic version. Always equal to `package.json` "version"; the version test fails the build if they drift. Mirrored by `VERSION` in the Go port. |
 | `Json5Options` | type | The TypeScript type of the options object (see [Options](#options)). |
 
 ```ts
@@ -33,7 +33,7 @@ import type { Json5Options } from '@tabnas/json5'
 ## Installing the plugin
 
 `Json5` is installed via the engine's `use()` method. It is not a
-standalone parse function — there is no `Json5('...')` entry point. The
+standalone parse function: there is no `Json5('...')` entry point. The
 parse entry point is the engine instance's `.parse(src)`.
 
 ### `engine.use(Json5, options?)`
@@ -43,8 +43,8 @@ const j = new Tabnas().use(jsonic).use(Json5, options?)
 ```
 
 - `jsonic` **must** be applied before `Json5`. It provides the
-  relaxed-JSON rule set that `Json5` constrains (e.g. dropping bare text
-  from value positions) and extends (e.g. line continuations,
+  relaxed-JSON rule set that `Json5` constrains (for example dropping bare text
+  from value positions) and extends (for example line continuations,
   `Infinity`).
 - `options` is an optional partial `Json5Options`; supplied keys are
   merged over `Json5.defaults`.
@@ -102,7 +102,7 @@ keys you pass over these defaults.
 
 Note `infinity` and `hex` default to `true` because they are part of the
 JSON5 spec. `octal`, `binary`, `numberSeparator`, `hashComment`, and
-`backtickString` default to `false` because they are *not* JSON5 — they
+`backtickString` default to `false` because they are *not* JSON5: they
 are opt-in extensions.
 
 ## Accepted syntax
@@ -132,7 +132,7 @@ An identifier key may spell a character as a `\uXXXX` escape, and the
 key is the DECODED text. Numeric keys (`{10:1}`) are rejected, as is an
 escape that would produce a character illegal in an identifier. Trailing
 commas are allowed. Duplicate keys take the last value. Every object
-must be closed — `{a:1` is an error, not `{a:1}`.
+must be closed, so `{a:1` is an error rather than `{a:1}`.
 
 ```js
 const { Tabnas } = require('@tabnas/parser')
@@ -166,7 +166,7 @@ j.parse('[[1,2],[3,4]]') // => [[1, 2], [3, 4]]
 Single- or double-quoted, with ES5.1 escapes (`\n`, `\t`, `A`,
 `\x41`, `\0`, …) plus line continuations: a backslash immediately
 followed by a line terminator is removed, so the string spans lines. The
-continuation is part of the string grammar only — a backslash before a
+continuation is part of the string grammar only; a backslash before a
 newline anywhere else is an error, and does not continue a `//` comment.
 
 ES5.1 also *restricts* the escape set: a decimal digit is an escape
@@ -187,7 +187,7 @@ j.parse('"line1\\\nline2"') // => 'line1line2'
 ```
 
 A literal control character inside a string (a raw tab) is accepted by
-the JSON5 grammar but rejected by this implementation — use `"\t"`.
+the JSON5 grammar but rejected by this implementation; use `"\t"`.
 
 ### Numbers
 
@@ -254,7 +254,7 @@ by `@tabnas/parser`). Relevant fields:
 
 | Field | Description |
 |---|---|
-| `code` | Error code string, e.g. `'unexpected'`, `'unterminated_string'`, `'json5_empty'`. |
+| `code` | Error code string, for example `'unexpected'`, `'unterminated_string'`, `'json5_empty'`. |
 | `lineNumber` | 1-based line of the error. |
 | `columnNumber` | 1-based column of the error. |
 | `message` | Formatted multi-line report with a source extract and caret. |

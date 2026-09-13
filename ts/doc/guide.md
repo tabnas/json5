@@ -5,7 +5,7 @@ the plugin installed (see the [tutorial](tutorial.md) for the basics).
 For the full option table and the API, follow the links into the
 [reference](reference.md).
 
-Every recipe builds a parser the same way — engine, jsonic grammar, then
+Every recipe builds a parser the same way: engine, jsonic grammar, then
 the `Json5` plugin:
 
 ```js
@@ -124,8 +124,8 @@ j.parse('foo')   // => 'foo'
 ## Allow empty input
 
 JSON5 requires a top-level value, so by default an empty source throws.
-Set `requireValue: false` to let a source with no value — empty,
-whitespace-only, or comments-only — resolve to `null`, the grammar's
+Set `requireValue: false` to let a source with no value (empty,
+whitespace-only, or comments-only) resolve to `null`, the grammar's
 declared empty result:
 
 ```js
@@ -140,7 +140,7 @@ j.parse('   ')                  // => null
 j.parse('// only a comment')    // => null
 
 // A source counts as valueless only if the scan says so, and the scan stops
-// at the first character that is neither whitespace nor part of a comment —
+// at the first character that is neither whitespace nor part of a comment,
 // so a string whose *contents* look like a comment is a value.
 j.parse('"/* x */"')            // => '/* x */'
 ```
@@ -167,14 +167,14 @@ info   // => { code: 'unexpected', line: 1, col: 1 }
 ```
 
 `err.message` is a formatted, multi-line report with a source extract and
-a caret — show that to a user. The structured fields (`code`,
+a caret; show that to a user. The structured fields (`code`,
 `lineNumber`, `columnNumber`) are for your code to branch on. An empty
 source under the default `requireValue: true` throws with code
 `json5_empty`.
 
 ## Reproduce strict JSON5
 
-The defaults already are strict JSON5 — you do not have to set anything.
+The defaults already are strict JSON5; you do not have to set anything.
 This parses exactly the JSON5 spec and nothing more:
 
 ```js

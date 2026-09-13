@@ -5,7 +5,7 @@ the plugin installed (see the [tutorial](tutorial.md) for the basics).
 For the full option table and the API, follow the links into the
 [reference](reference.md).
 
-Every recipe builds a parser the same way — a jsonic instance with the
+Every recipe builds a parser the same way: a jsonic instance with the
 `Json5` plugin installed via `UseDefaults`:
 
 ```go
@@ -128,7 +128,7 @@ v, err := j.Parse("")
 
 ## Handle parse errors
 
-A failed `Parse` returns an `error` — it never panics. Use `errors.As`
+A failed `Parse` returns an `error`; it never panics. Use `errors.As`
 to reach the structured `*tabnasjsonic.JsonicError`:
 
 ```go
@@ -149,15 +149,15 @@ if errors.As(err, &je) {
 ```
 
 `err.Error()` is a formatted, multi-line report with a source extract and
-a caret — show that to a user. The fields (`Code`, `Row`, `Col`, `Hint`)
+a caret; show that to a user. The fields (`Code`, `Row`, `Col`, `Hint`)
 are for your code to branch on. (Empty input under the default
-`requireValue: true` also returns an error — use `tabnasjson5.Parse(j,
+`requireValue: true` also returns an error; use `tabnasjson5.Parse(j,
 src)` to get the TS plugin's `json5_empty` code for it; see
 [concepts](concepts.md#differences-from-the-ts-version).)
 
 ## Reproduce strict JSON5
 
-The defaults already are strict JSON5 — you do not have to set anything.
+The defaults already are strict JSON5; you do not have to set anything.
 This parses exactly the JSON5 spec and nothing more, and any valid JSON
 is valid JSON5:
 

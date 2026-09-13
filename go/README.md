@@ -1,7 +1,7 @@
-# @tabnas/json5 — Go
+# @tabnas/json5: Go
 
 A [Jsonic](https://github.com/tabnas/jsonic) grammar plugin for parsing
-[JSON5](https://json5.org) — JSON plus comments, unquoted and
+[JSON5](https://json5.org): JSON plus comments, unquoted and
 single-quoted keys, single-quoted strings, trailing commas, hexadecimal
 integers, `Infinity` / `NaN`, leading- and trailing-decimal numbers,
 explicit `+` signs, and string line continuations.
@@ -52,10 +52,10 @@ func main() {
 Full documentation, following the [Diátaxis](https://diataxis.fr)
 framework:
 
-- [Tutorial](doc/tutorial.md) — learn the plugin from a guided first parse.
-- [How-to guide](doc/guide.md) — task recipes (options, errors, strictness).
-- [Reference](doc/reference.md) — the API, every option, and accepted syntax.
-- [Concepts](doc/concepts.md) — how it works, plus differences from the TS version.
+- [Tutorial](doc/tutorial.md). Learn the plugin from a guided first parse.
+- [How-to guide](doc/guide.md). Task recipes (options, errors, strictness).
+- [Reference](doc/reference.md). The API, every option, and accepted syntax.
+- [Concepts](doc/concepts.md). How it works, plus differences from the TS version.
 
 The grammar source lives in the repository-root
 [`json5-grammar.jsonic`](../json5-grammar.jsonic), shared with the

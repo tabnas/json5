@@ -1,7 +1,7 @@
 # Concepts (Go)
 
 Background on how the `json5` Go package is put together, and why. This
-is understanding-oriented reading — for steps see the
+is understanding-oriented reading; for steps see the
 [tutorial](tutorial.md) and [how-to guide](guide.md), and for exact
 signatures and options see the [reference](reference.md).
 
@@ -10,12 +10,12 @@ signatures and options see the [reference](reference.md).
 The plugin is not a parser. It is a *configuration* of one. Three layers
 stack up:
 
-- the **engine** — the Go port of `tabnas` — a rule-based parser over a
+- the **engine**, the Go port of `tabnas`, a rule-based parser over a
   configurable, matcher-based lexer;
-- the **relaxed-JSON grammar** — the Go port of jsonic
-  (`github.com/tabnas/jsonic/go`) — the rules that turn `a:1,b:2` into a
+- the **relaxed-JSON grammar**, the Go port of jsonic
+  (`github.com/tabnas/jsonic/go`), the rules that turn `a:1,b:2` into a
   map, comments, trailing commas, and so on;
-- the **JSON5 plugin** — this package — which constrains and extends the
+- the **JSON5 plugin**, this package, which constrains and extends the
   jsonic grammar so that what is accepted is exactly JSON5.
 
 You install the plugin onto a jsonic instance with `UseDefaults`. The
@@ -32,7 +32,7 @@ The grammar lives once in the repository-root `json5-grammar.jsonic`. A
 build step (`ts/embed-grammar.js`) inlines it verbatim into both
 `go/json5.go` and `ts/src/json5.ts` between marker comments, so the two
 language ports parse the *same* spec and cannot drift. The file is itself
-written in jsonic syntax — a relaxed-JSON document describing engine
+written in jsonic syntax: a relaxed-JSON document describing engine
 options.
 
 At plugin-install time the flow is:
@@ -71,7 +71,7 @@ jsonic is deliberately more permissive than JSON5. The plugin makes it
   `tokenSet` at parse time.
 - **Identifier-name keys.** An unquoted key must be a valid ECMAScript
   5.1 `IdentifierName`. A `pair` after-open validator checks each
-  unquoted key's source and rejects ones that are not — this lets
+  unquoted key's source and rejects ones that are not: this lets
   `{while:true}` through but stops `{10:1}` and symbol keys. The same
   validator *decodes* `\uXXXX` escapes in the key, so `{sig\u03A3ma:1}`
   has the key `sigΣma`; an escape that would produce a character illegal
@@ -80,7 +80,7 @@ jsonic is deliberately more permissive than JSON5. The plugin makes it
 - **No end-of-source auto-close.** jsonic closes any rule still open when
   the source runs out, so bare jsonic reads `{a:1` as `{"a":1}`. JSON5
   requires the closing brace, so the grammar sets `rule.finish: false`
-  and an unterminated map or list is an `end_of_source` error — except
+  and an unterminated map or list is an `end_of_source` error, except
   when the source ends immediately after `[` or `:` (trailing whitespace
   ignored), which reports `unexpected` instead. "Ends where a value could
   follow" is NOT the rule: `[1,` is `end_of_source` while `[1,[` is
@@ -92,7 +92,7 @@ jsonic is deliberately more permissive than JSON5. The plugin makes it
 ## The lexer-check hooks
 
 Three things JSON5 needs cannot be expressed as plain lexer options, so
-the plugin installs **lex-check** hooks — `tabnasjsonic.LexCheck` functions
+the plugin installs **lex-check** hooks: `tabnasjsonic.LexCheck` functions
 the lexer calls at each step:
 
 - **String line continuations.** A backslash immediately followed by a
@@ -104,7 +104,7 @@ the lexer calls at each step:
   rewrite is context-aware (`stripLineContinuations`): a
   `LineContinuation` belongs to the *string* grammar, so the scan copies
   comments and unquoted text through untouched. A blanket replacer would
-  extend a `//` comment over the next line, and would quietly accept
+  extend a `//` comment over the next line, and would silently accept
   `[1,\<newline>2]`.
 - **Identifier-aware text rejection.** A `textCheck` hook stops the lexer
   at any unquoted run that neither begins a valid JSON5 `IdentifierStart`
@@ -116,7 +116,7 @@ the lexer calls at each step:
   accepted. JSON5 inherits ES5.1's stricter rule, where a `DecimalDigit`
   is an `EscapeCharacter` and the code-point form does not exist, so a
   `stringCheck` hook rejects `\1`..`\9`, `\0` followed by a digit, and
-  `\u{XXXX}`. (`\xHH` and `\uXXXX` stay — JSON5 has both.)
+  `\u{XXXX}`. (`\xHH` and `\uXXXX` stay, since JSON5 has both.)
 
 In the Go port the hooks are also wired directly onto the resolved config
 (`cfg.FixedCheck`, `cfg.TextCheck`, `cfg.StringCheck`) because the
@@ -129,9 +129,9 @@ Two number shapes are not recognised by the engine's built-in number
 matcher, so they are registered as regex-matched value definitions in the
 grammar (and so behave identically in both ports):
 
-- **Trailing-decimal-with-exponent** (`5.e4`) — matched by
+- **Trailing-decimal-with-exponent** (`5.e4`). Matched by
   `^[+-]?[0-9]+\.[eE][+-]?[0-9]+`, parsed with `strconv.ParseFloat`.
-- **Uppercase `0X` hex** (`0X1f`) — matched by `^[+-]?0X[0-9a-fA-F]+`,
+- **Uppercase `0X` hex** (`0X1f`). Matched by `^[+-]?0X[0-9a-fA-F]+`,
   parsed as a base-16 integer and returned as `float64`.
 
 ## Why `Infinity` / `NaN` are injected in code
@@ -144,7 +144,7 @@ value. So the plugin injects the six keywords (`Infinity`, `+Infinity`,
 `-Infinity`, `NaN`, `+NaN`, `-NaN`) into the value defs at install time,
 gated by the `infinity` option.
 
-## Accepted vs rejected — the edge cases
+## Accepted vs rejected: the edge cases
 
 | Input | Result | Why |
 |---|---|---|
@@ -158,7 +158,7 @@ gated by the `infinity` option.
 | `5.e4` | accepted → `50000` | Regex value def. |
 | `05.e4` | rejected | The regex value def excludes a leading zero too. |
 | `0X1f` | accepted → `31` | Uppercase-hex regex value def. |
-| `{a:1` | rejected | `rule.finish: false` — every brace must be closed. |
+| `{a:1` | rejected | `rule.finish: false`, so every brace must be closed. |
 | `{sig\u03A3ma:1}` | accepted → `{sigΣma:1}` | Identifier escapes are decoded. |
 | `"\1"` | rejected | A `DecimalDigit` is not a `NonEscapeCharacter`. |
 | `"\u{41}"` | rejected | The code-point escape is ES2015, not ES5.1. |
@@ -185,7 +185,7 @@ lexer rejects any character below `U+0020` outright. Escaped forms
 
 The TypeScript implementation is authoritative; the Go port is a faithful
 port that shares the same grammar file and passes the same corpus. The
-differences below do **not** change a successful parse value — they
+differences below do **not** change a successful parse value: they
 concern API shape, host-language value types, and one error code.
 
 ### API shape
@@ -212,20 +212,20 @@ differ where the languages differ:
 | String | `string` | `string` |
 | Boolean | `boolean` | `bool` |
 | `null` | `null` | `nil` |
-| No value — empty, whitespace-only or comments-only (`requireValue: false`) | `null` | `nil` |
+| No value (empty, whitespace-only or comments-only) (`requireValue: false`) | `null` | `nil` |
 | `Infinity` / `NaN` | `Infinity` / `NaN` | `math.Inf(1)` / `math.NaN()` |
 
 ### Numeric overflow
 
-Aligned. A decimal literal too large for a 64-bit float — `1e400`,
-`-1e30123` — is `Infinity` in ECMAScript, and both runtimes now parse it
+Aligned. A decimal literal too large for a 64-bit float (`1e400`,
+`-1e30123`) is `Infinity` in ECMAScript, and both runtimes now parse it
 that way: TS gives `Infinity` / `-Infinity`, Go gives `math.Inf(1)` /
 `math.Inf(-1)`.
 
 This previously diverged: the Go engine's number matcher treated the
 overflow as "not a number", so the literal fell through to the text
 matcher and the parse failed with `unexpected`. It was fixed in
-`github.com/tabnas/parser/go` — `parseNumericString` now keeps the
+`github.com/tabnas/parser/go`: `parseNumericString` now keeps the
 saturated value `strconv.ParseFloat` returns alongside `ErrRange`,
 mirroring JS unary `+`. Underflow (`1e-999` → `0`) was always aligned.
 

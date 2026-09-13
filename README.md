@@ -9,7 +9,7 @@
 
 A [Tabnas](https://github.com/tabnas/parser) /
 [Jsonic](https://github.com/tabnas/jsonic) grammar plugin that parses
-[JSON5](https://json5.org) — JSON plus comments, unquoted keys, trailing
+[JSON5](https://json5.org): JSON plus comments, unquoted keys, trailing
 commas, single quotes, hex / `Infinity` / `NaN` numbers, leading- and
 trailing-decimal numbers, explicit `+` signs, and string line
 continuations.
@@ -17,13 +17,13 @@ continuations.
 Docs, guides, the error reference and the playground: **[tabnas.dev](https://tabnas.dev)**.
 
 Both ports share one grammar file and pass the full official
-[`json5/json5-tests`](https://github.com/json5/json5-tests) corpus — all
-114 fixtures — in TypeScript and in Go. Passing means both halves: the 83
+[`json5/json5-tests`](https://github.com/json5/json5-tests) corpus (all
+114 fixtures) in TypeScript and in Go. Passing means both halves: the 83
 valid fixtures parse **to the expected value**, checked against the ES5
 engine that json5-tests' own README names as the oracle, and the 31
-invalid ones are rejected. A supplementary derived probe — every
+invalid ones are rejected. A supplementary derived probe (every
 truncated prefix and every trailing-garbage variant of the corpus that
-ES5 itself rejects — confirms neither port auto-closes an unterminated
+ES5 itself rejects) confirms neither port auto-closes an unterminated
 document nor silently ignores text after a complete value.
 
 One documented deviation remains: a literal control character inside a
@@ -71,14 +71,14 @@ v, _ := j.Parse(`{ a: 1, b: [2, 3,], }`)
 ## Documentation
 
 Full documentation follows the [Diátaxis](https://diataxis.fr) framework
-— a tutorial to learn from, how-to recipes, a complete reference, and the
-concepts behind it.
+It is a tutorial to learn from, how-to recipes, a complete reference, and
+the concepts behind it.
 
-**TypeScript** — [`ts/doc/`](ts/doc/)
+**TypeScript**: [`ts/doc/`](ts/doc/)
 
 - [Tutorial](ts/doc/tutorial.md) · [How-to guide](ts/doc/guide.md) · [Reference](ts/doc/reference.md) · [Concepts](ts/doc/concepts.md)
 
-**Go** — [`go/doc/`](go/doc/)
+**Go**: [`go/doc/`](go/doc/)
 
 - [Tutorial](go/doc/tutorial.md) · [How-to guide](go/doc/guide.md) · [Reference](go/doc/reference.md) · [Concepts](go/doc/concepts.md)
 
