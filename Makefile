@@ -6,7 +6,8 @@
 
 .PHONY: all build test clean build-ts build-go test-ts test-go \
         clean-ts clean-go publish-ts publish-go tags-go reset \
-        gen-suite-expected check-suite-expected
+        gen-suite-expected check-suite-expected \
+        prose prose-counts
 
 all: build test
 
