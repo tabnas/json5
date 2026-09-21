@@ -615,8 +615,16 @@ fn strip_line_continuations(src: &str, quotes: &str, esc: char, hash_comment: bo
 /// no value, but the engine's own `unterminated_comment` is the more
 /// useful diagnostic and this declines to shadow it.
 ///
-/// Mirrors `hasValue` in `ts/src/json5.ts` and `go/json5.go`.
-fn has_value(src: &str) -> bool {
+/// `hash_comment` says whether THIS configuration also has the `#` form.
+/// It is a parameter rather than a read of the options because the two
+/// callers want different answers: the `require_value` guard passes
+/// `false`, so a hash-comment-only source keeps falling through to the
+/// rules and the engine's own `unexpected`, and the `require_value`-off
+/// short-circuit passes the option, so the same source counts as trivia
+/// and resolves to the declared empty result.
+///
+/// Mirrors `hasValue` in `ts/src/json5.ts`.
+fn has_value(src: &str, hash_comment: bool) -> bool {
     let chars: Vec<char> = src.chars().collect();
     let n = chars.len();
     let mut i = 0;
@@ -624,6 +632,14 @@ fn has_value(src: &str) -> bool {
         let c = chars[i];
         if is_json5_space(c) {
             i += 1;
+            continue;
+        }
+        if hash_comment && c == '#' {
+            // Line comment: runs to the next line terminator, or the end.
+            i += 1;
+            while i < n && !is_line_terminator(chars[i]) {
+                i += 1;
+            }
             continue;
         }
         if c == '/' && i + 1 < n {
@@ -1272,14 +1288,27 @@ pub fn parse_with(parser: &Tabnas, src: &str) -> Result<Value, Json5Error> {
         if src.is_empty() {
             return Err(value_error(parser, "json5_empty", src));
         }
-        if !has_value(src) {
+        // Slash forms ONLY, deliberately, and the `false` says so at the
+        // call rather than in a comment on the scan. A hash-comment-only
+        // source is not `json5_no_value` here: it reaches the rules and
+        // fails on the comment with the engine's own `unexpected`, which
+        // is what all three runtimes do and what the `# comment` row of
+        // `test/spec/options.tsv` pins.
+        if !has_value(src, false) {
             return Err(value_error(parser, "json5_no_value", src));
         }
-    } else if !src.is_empty() && !has_value(src) {
+    } else if !src.is_empty() && !has_value(src, options.hash_comment) {
         // Without requireValue, a source holding no value resolves to the
         // SAME declared empty result that `""` already resolves to.
         // Delegating to the engine's own empty-source path keeps the
         // grammar's `emptyResult` the one place that value is written.
+        //
+        // With `hash_comment` on, `#` is trivia exactly as `//` is, so a
+        // hash-comment-only source takes this path too. The result is the
+        // same `null` the rules already fell out with here, measured both
+        // ways; what changes is that it now arrives by the SAME route as
+        // in the canonical, which took the rules path and answered
+        // `undefined` until 2026-09-21.
         return parser.parse("");
     }
     let quotes = if options.backtick_string {

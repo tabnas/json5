@@ -69,7 +69,10 @@ j.parse('{a:1}')   // => { a: 1 }
 Return types are plain JavaScript values: objects → object literals,
 arrays → arrays, strings → `string`, numbers → `number` (including
 `Infinity` / `-Infinity` / `NaN`), `true`/`false` → `boolean`, `null` →
-`null`. Under `requireValue: false` an empty source returns `undefined`.
+`null`. Under `requireValue: false` a source with no value in it returns
+`null`, the empty result this grammar declares, and that holds for every
+such source: empty, whitespace-only, comments-only, and (with
+`hashComment` on) hash-comment-only.
 
 ### `Json5.defaults`
 
@@ -97,7 +100,7 @@ keys you pass over these defaults.
 | `numberSeparator` | `false` | Accept `_` as a digit group separator (`1_000`). | `_` in a number is rejected. |
 | `octal` | `false` | Accept `0o`-prefixed octal integers (`0o17`). | Octal literals are rejected. |
 | `binary` | `false` | Accept `0b`-prefixed binary integers (`0b101`). | Binary literals are rejected. |
-| `requireValue` | `true` | An empty (or whitespace/comment-only) source is an error: a top-level value is required. | An empty source parses to `undefined`. |
+| `requireValue` | `true` | An empty (or whitespace/comment-only) source is an error: a top-level value is required. | A source with no value in it parses to `null`, the declared empty result. |
 | `strictValue` | `true` | Reject bare unquoted text at value positions (`foo` is not a value). | Fall back to jsonic's text rule: bare words parse as strings. |
 
 Note `infinity` and `hex` default to `true` because they are part of the

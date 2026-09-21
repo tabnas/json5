@@ -124,8 +124,12 @@ func TestVeryLongWellFormedInputParsesToTheRightValue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("long string: %v", err)
 	}
-	if got, ok := v.(string); !ok || len(got) != 2000000 {
-		t.Errorf("long string = %T of length %d, want a 2,000,000-character string", v, len(body))
+	long, ok := v.(string)
+	if !ok {
+		t.Fatalf("long string = %T, want a string", v)
+	}
+	if len(long) != 2000000 {
+		t.Errorf("long string has length %d, want 2,000,000", len(long))
 	}
 
 	// A 500,000-digit integer is finite input and an infinite double.
@@ -164,13 +168,32 @@ func TestVeryLongWellFormedInputParsesToTheRightValue(t *testing.T) {
 		t.Errorf("continuations = %#v, want the empty string", v)
 	}
 
-	// 200,000 unicode escapes decode one for one.
-	v, err = Parse(j, `"`+strings.Repeat(`A`, 200000)+`"`)
+	// 200,000 unicode escapes decode one for one. The SOURCE is the escape
+	// spelling, `\u0041` 200,000 times, which is what the Rust and
+	// TypeScript mirrors send. Sending 200,000 literal `A` characters
+	// instead, as this did until 2026-09-21, is a second copy of the long
+	// string case above and leaves the escape decoder untested at size:
+	// the escape run is 1,200,000 characters, 1,200,002 with the quotes,
+	// and the result is 200,000.
+	escaped := `"` + strings.Repeat(`\u0041`, 200000) + `"`
+	if len(escaped) != 1200002 {
+		t.Fatalf("escape source is %d characters, want 1,200,002", len(escaped))
+	}
+	v, err = Parse(j, escaped)
 	if err != nil {
 		t.Fatalf("escapes: %v", err)
 	}
-	if got, ok := v.(string); !ok || got != strings.Repeat("A", 200000) {
-		t.Errorf("escapes = %T of length %d, want 200,000 A characters", v, len(body))
+	got, ok := v.(string)
+	if !ok {
+		t.Fatalf("escapes = %T, want a string", v)
+	}
+	// Length and content separately, as the Rust mirror asserts them, so a
+	// failure names which of the two went wrong.
+	if len(got) != 200000 {
+		t.Errorf("escapes decoded to %d characters, want 200,000", len(got))
+	} else if rest := strings.TrimLeft(got, "A"); rest != "" {
+		t.Errorf("escapes decoded to %d trailing non-A characters, want all A",
+			len(rest))
 	}
 }
 
@@ -185,8 +208,14 @@ func TestAWideContainerArrivesWhole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("wide array: %v", err)
 	}
-	if items, ok := v.([]any); !ok || len(items) != width {
-		t.Errorf("wide array = %T of length %d, want %d items", v, len(v.([]any)), width)
+	// len(items) rather than len(v.([]any)): the second assertion panics
+	// on the very failure it is reporting, when v is not a slice at all.
+	items, ok := v.([]any)
+	if !ok {
+		t.Fatalf("wide array = %T, want []any", v)
+	}
+	if len(items) != width {
+		t.Errorf("wide array has %d items, want %d", len(items), width)
 	}
 
 	var object strings.Builder

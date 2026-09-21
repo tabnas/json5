@@ -55,7 +55,11 @@ fn code(parser: &Tabnas, src: &str) -> String {
 #[test]
 fn nesting_far_past_the_budget_is_refused_rather_than_run() {
     let j = make();
-    for depth in [200usize, 1_000, 10_000, 100_000] {
+    // 5,000 is here because `../DIVERGENCE.md` records it by name: its
+    // nesting table has a "5,000 nested `[`" row whose Rust column reads
+    // `cancel`, and a figure bracketed by its neighbours is not a figure
+    // that is executed.
+    for depth in [200usize, 1_000, 5_000, 10_000, 100_000] {
         for (open, close, mid) in [("[", "]", ""), ("{a:", "}", "1")] {
             let balanced = format!("{}{mid}{}", open.repeat(depth), close.repeat(depth));
             assert_eq!(code(&j, &balanced), "cancel", "{depth} levels of {open}");

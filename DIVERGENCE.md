@@ -21,12 +21,29 @@ Recording a difference here asserts that it CANNOT be repaired. Where
 the canonical is simply wrong, the repair belongs in `ts/src/json5.ts`
 and the rows belong in a shared fixture. An entry whose own prose names
 a fixable defect is a false claim of impossibility, and it is worse than
-no entry at all, because other ports copy from this file. One such entry
-stood here until 2026-09-21: an astral `IdentifierStart` opened a key in
-Go and Rust and was refused by the canonical, whose text check read one
-UTF-16 code unit and so saw a high surrogate. The check reads a code
-point now, the four inputs are rows of `test/spec/keys.tsv` and
-`test/spec/options.tsv`, and the entry is gone.
+no entry at all, because other ports copy from this file. Two such
+entries stood here until 2026-09-21.
+
+The first: an astral `IdentifierStart` opened a key in Go and Rust and
+was refused by the canonical, whose text check read one UTF-16 code unit
+and so saw a high surrogate. The check reads a code point now, the four
+inputs are rows of `test/spec/keys.tsv` and `test/spec/options.tsv`, and
+the entry is gone.
+
+The second: with `hashComment` on and `requireValue` off, a
+hash-comment-only source answered `undefined` in the canonical and the
+declared empty result in both ports, because the canonical's no-value
+scan knew the two slash comment forms and not `#`. The entry parked the
+repair on the claim that teaching the scan the hash form would also turn
+the `requireValue` control row from `unexpected` into `json5_no_value`.
+That claim was wrong, and measuring it is what showed so: the canonical
+calls the scan from two SEPARATE `requireValue` branches, so the OFF
+branch could be told about `#` while the ON branch kept the slash-only
+scan its control needs. The canonical was repaired, the
+control was re-measured unchanged in all three runtimes, and the rows
+are now in `test/spec/options.tsv` -- including the two controls, the
+one that keeps `# comment` at `unexpected` under `requireValue` and the
+one that keeps `#` a non-value when `hashComment` is off.
 
 Audited 2026-09-21, entry by entry: every table below is executed in all
 three runtimes, either as a register row or by a named test per column.
@@ -79,51 +96,6 @@ every figure above is executed:
 difference it records is invisible to a value comparison that has
 already folded the surrogate.
 
-## A hash-comment-only source, with requireValue off
-
-`hasValue` deliberately knows only the two slash comment forms, in all
-three runtimes, so a `#` counts as the start of a value and the
-`requireValue` guard does not fire. The source then reaches the rules,
-where TypeScript falls out with no value at all and both ports answer
-the grammar's declared empty result.
-
-| input | options | TypeScript | Go | Rust |
-|---|---|---|---|---|
-| `# c` | `hashComment`, `requireValue: false` | no value | `null` | `null` |
-| `# comment` | `hashComment` alone | `unexpected` | the same | the same |
-
-The second row is the control, and it IS a shared fixture, executed by
-all three runtimes: it is in `test/spec/options.tsv`, beside a comment
-explaining why the first row is not. Neither pin the shared files offer
-fits the first row. The register's three runners build one parser from
-the defaults and the file has no `opts` column; a `test/spec` fixture
-has an `opts` column but compares ONE expected value across all three
-runtimes, which is exactly what this row denies.
-
-Pinned instead by one option-aware test per column, so a change to any
-of the three results goes red:
-`a_hash_comment_only_source_answers_the_declared_empty_result` in
-`rs/tests/json5_test.rs`, `hash-comment-only-with-require-value-off` in
-`ts/test/json5.test.ts`, and `TestHashCommentOnlyWithRequireValueOff` in
-`go/json5_test.go`. The TypeScript one uses `assert.strictEqual`:
-`assert.deepEqual` compares `undefined` and `null` as equal, so the
-loose helper the file uses elsewhere would pass whichever came back and
-pin nothing at all. Go returns a bare `nil` for both, so its test pins
-what Go can distinguish, a value rather than an error.
-
-The difference is the ENGINE's, not the plugin's. All three plugins
-short-circuit a no-value source to the engine's own empty-source path,
-and all three use the same `hasValue` scan, which knows the two slash
-comment forms and not `#`. What differs is where that leaves the source:
-the TypeScript engine yields `undefined` when the rules match no value,
-and the Go and Rust engines yield the grammar's declared `emptyResult`.
-The repair therefore belongs upstream in `tabnas/parser`. A plugin-level
-workaround exists and is deliberately not taken: teaching `hasValue` the
-hash form would close this row and would also turn `# comment` under
-`requireValue` from `unexpected` into `json5_no_value` in all three
-runtimes, which is a behaviour change to the second row of this table
-and not a repair of the first.
-
 ## Nesting is bounded in the Rust port
 
 | input | TypeScript | Go | Rust |
@@ -166,12 +138,25 @@ divergence becomes expressible when those two halves adopt
 `rs/tests/divergent_test.rs` is waiting for; that repair belongs to this
 repository. Pinned meanwhile by one test per column, so every figure
 above is executed: `nesting_is_capped_at_the_budget_jsonic_installs` in
-`rs/tests/json5_test.rs` for the bound, `nesting-is-unbounded` in
-`ts/test/json5.test.ts` and `TestNestingIsUnbounded` in
+`rs/tests/json5_test.rs` for the bound at 127 and 128, which also WALKS
+the accepted 127 to its floor so the two "127" figures are read and not
+merely parsed, and
+`nesting_far_past_the_budget_is_refused_rather_than_run` in
+`rs/tests/untrusted_test.rs` for the 5,000 row, which is named in its
+depth list rather than bracketed by its neighbours; `nesting-is-unbounded`
+in `ts/test/json5.test.ts` and `TestNestingIsUnbounded` in
 `go/json5_test.go` for the absence of one. Those last two walk the
 parsed tree to its floor rather than only checking that the parse
 returned, so a runtime that silently truncated at some depth would fail
 them.
+
+That last sentence was written here on 2026-09-21 and was only half
+true when it was written. The TypeScript test walked both halves; the Go
+test walked the array half and checked the object half for nothing but
+`err == nil`, so a Go regression that accepted 5,000 nested objects and
+truncated the value would have kept this column green. The Go object
+half walks the `a` chain to its scalar leaf now, and asserts the depth
+and the leaf, which is what the sentence always claimed.
 
 ## The no-value error carries no position in TypeScript
 
@@ -183,9 +168,18 @@ them.
 The CODE agrees, and that is what `test/spec/options.tsv` pins; only the
 position differs, because the canonical raises these two before the
 lexer has a point to report. Both ports site them at the start of the
-source. Recorded for completeness rather than as a defect: a caller
-reading `row` and `col` gets a number from the ports and `undefined`
-from the canonical.
+source. Recorded for completeness rather than as a defect.
+
+The fields are not spelled alike, and the pins have to read the right
+ones. The canonical's errors carry a position as `lineNumber` and
+`columnNumber`; `row` and `col` are undefined on an ORDINARY positioned
+canonical error too, so a pin asserting THOSE undefined here asserts
+nothing at all and would stay green through the very change this entry
+records. Measured 2026-09-21: `["a" 1]` gives `lineNumber` 1 and
+`columnNumber` 6, and `row` and `col` absent; `//` gives all four
+absent. Go's `*jsonic.JsonicError` carries `Row` and `Col`, and Rust's
+`Json5Error` carries `row` and `col`; both are 1 and 1 for these two
+inputs.
 
 No fixture column carries a position, so the position is pinned by one
 test per column: `the_no_value_errors_carry_a_position` in

@@ -547,7 +547,14 @@ const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
         err.details = { src }
         throw err
       }
-      if (!hasValue(src)) {
+      // Slash forms ONLY, deliberately, and the `false` says so at the
+      // call rather than in a comment on the scan. A hash-comment-only
+      // source is not `json5_no_value` here: it reaches the rules and
+      // fails on the comment with the engine's own `unexpected`, which
+      // is what all three runtimes do and what the `# comment` row of
+      // test/spec/options.tsv pins. Teaching THIS branch the hash form
+      // would change that agreed answer rather than repair anything.
+      if (!hasValue(src, false)) {
         const err: any = new Error('JSON5 input must contain a value')
         err.code = 'json5_no_value'
         err.details = { src }
@@ -575,10 +582,23 @@ const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
     // subtlety in one place: `/* x` answers YES on purpose, so an unterminated
     // comment still raises the engine's `unterminated_comment` here instead of
     // being silently swallowed as "no value".
+    //
+    // The scan is told which comment forms this configuration HAS. With
+    // hashComment on, `#` runs to the end of the line and is trivia
+    // exactly as `//` is, so `'# c'` is a no-value source and must
+    // resolve to the declared empty result like every other one. Until
+    // 2026-09-21 it did not: `#` was not trivia to the scan, the source
+    // reached the rules, and TypeScript fell out with `undefined` where
+    // both ports answered the declared empty result. That was recorded in
+    // DIVERGENCE.md as unrepairable, on the ground that teaching the scan
+    // the hash form would also turn the requireValue control row from
+    // `unexpected` into `json5_no_value`. It does not: the two branches
+    // call the scan separately, so this one can know the hash form while
+    // the branch above keeps the slash-only scan its control row needs.
     const parser: any = tn.internal().parser
     const origStart: (...args: any[]) => any = parser.start.bind(parser)
     parser.start = (src: string, ...rest: any[]) => {
-      if (null != src && '' !== src && !hasValue(src)) {
+      if (null != src && '' !== src && !hasValue(src, !!options.hashComment)) {
         // Delegate to the engine's own empty-source path rather than naming
         // the value here: the grammar declares emptyResult once, and a second
         // copy of it would be the next thing to drift out of step.
@@ -605,7 +625,16 @@ const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
 // An unterminated block comment answers YES on purpose. `/* x` contains
 // no value, but the engine's own `unterminated_comment` is the more
 // useful diagnostic and this declines to shadow it.
-function hasValue(src: string): boolean {
+//
+// `hashComment` says whether THIS configuration also has the `#` form.
+// It is a parameter rather than a read of the options because the two
+// callers want different answers: the requireValue guard passes `false`,
+// so a hash-comment-only source keeps falling through to the rules and
+// the engine's own `unexpected`, and the requireValue-off short-circuit
+// passes the option, so the same source counts as trivia and resolves to
+// the declared empty result. Both answers are measured; see
+// test/spec/options.tsv.
+function hasValue(src: string, hashComment: boolean): boolean {
   const n = src.length
   let i = 0
 
@@ -614,6 +643,15 @@ function hasValue(src: string): boolean {
 
     if (isSpace(c)) {
       i++
+      continue
+    }
+
+    if (hashComment && '#' === c) {
+      // Line comment: runs to the next line terminator, or to the end.
+      i++
+      while (i < n && !isLineEnd(src[i])) {
+        i++
+      }
       continue
     }
 

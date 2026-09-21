@@ -277,46 +277,17 @@ func TestRequireValue(t *testing.T) {
 	}
 }
 
-// A hash-comment-only source under hashComment, with requireValue OFF.
-// hasValue deliberately knows only the two slash comment forms, in all
-// three runtimes, so a `#` counts as the start of a value and the
-// requireValue short-circuit does not fire. The source reaches the
-// rules, where this port answers the grammar's declared emptyResult and
-// the canonical TypeScript engine falls out with no value at all. That
-// difference is recorded in ../DIVERGENCE.md, and this is the pin for
-// the GO column of its table: the register has no opts column, and a
-// shared fixture compares one expected value across three runtimes.
-//
-// Go returns a bare nil for both null and "no value", so this pins what
-// Go can distinguish: a value, not an error, and that value is nil. The
-// null/undefined half of the table is pinned in the other two runtimes,
-// which can tell them apart.
-func TestHashCommentOnlyWithRequireValueOff(t *testing.T) {
-	j := parser(t, map[string]any{"hashComment": true, "requireValue": false})
-	for _, src := range []string{"# c", "# c\n# d", "   # c   "} {
-		v, err := Parse(j, src)
-		if err != nil {
-			t.Fatalf("Parse(j, %q) error: %v", src, err)
-		}
-		if v != nil {
-			t.Errorf("Parse(j, %q) = %#v, want nil", src, v)
-		}
-	}
-
-	// The slash forms answer the same thing, and they are shared fixture
-	// rows: only the hash form diverges.
-	slash := parser(t, map[string]any{"requireValue": false})
-	if v, err := Parse(slash, "// c"); err != nil || v != nil {
-		t.Errorf(`Parse(slash, "// c") = %#v, %v; want nil, nil`, v, err)
-	}
-
-	// The control, itself a row of ../test/spec/options.tsv: with
-	// requireValue ON the same source fails on the comment instead.
-	strict := parser(t, map[string]any{"hashComment": true})
-	if _, err := Parse(strict, "# comment"); err == nil {
-		t.Error(`Parse(strict, "# comment") expected an error, got nil`)
-	}
-}
+// A hash-comment-only source with requireValue OFF was a recorded
+// divergence until 2026-09-21: the canonical's no-value scan knew only
+// the two slash comment forms, so `#` counted as the start of a value,
+// the source reached the rules, and the canonical fell out with
+// undefined where this port and Rust answered the declared empty result.
+// The canonical's scan is told which comment forms the configuration has
+// now, from its requireValue-OFF branch only, so all three answer null
+// and the inputs are shared fixture rows in ../test/spec/options.tsv
+// rather than a pin for one column here. This port needed no change: it
+// has no requireValue-OFF short-circuit, because the Go engine already
+// answers the declared empty result when the rules match no value.
 
 func TestNonStrictOptions(t *testing.T) {
 	js := parser(t, map[string]any{
@@ -454,8 +425,35 @@ func TestNestingIsUnbounded(t *testing.T) {
 			t.Errorf("%d nested arrays: reached level %d", depth, level)
 		}
 
-		if _, err := Parse(j, strings.Repeat("{a:", depth)+"1"+strings.Repeat("}", depth)); err != nil {
+		// The object half walks the `a` chain to its scalar leaf, the same
+		// walk the TypeScript counterpart makes. Checking only that Parse
+		// returned no error left this half blind: a regression that
+		// accepted the document and truncated the value at some depth kept
+		// it green, while ../DIVERGENCE.md leaned on it for the Go column
+		// of the nesting table. Measured: 5,000 levels, leaf float64(1).
+		object, err := Parse(j, strings.Repeat("{a:", depth)+"1"+strings.Repeat("}", depth))
+		if err != nil {
 			t.Fatalf("%d nested objects: %v", depth, err)
+		}
+		olevel := 0
+		node := object
+		for {
+			om, ok := node.(*jsonic.OrderedMap)
+			if !ok {
+				break
+			}
+			next, present := om.Vals["a"]
+			if !present {
+				break
+			}
+			olevel++
+			node = next
+		}
+		if olevel != depth {
+			t.Errorf("%d nested objects: reached level %d", depth, olevel)
+		}
+		if leaf, ok := node.(float64); !ok || leaf != 1 {
+			t.Errorf("%d nested objects: leaf = %#v, want float64(1)", depth, node)
 		}
 	}
 }
