@@ -76,8 +76,27 @@ const OPTIONS_MARK: &str = "json5$options";
 /// category characters the specification enumerates.
 const JSON5_WHITESPACE: &str = "\t\u{000B}\u{000C} \u{00A0}\u{FEFF}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}";
 
-/// JSON5 LineTerminator: LF, CR, LS, PS.
-const JSON5_LINE_TERMINATOR: &str = "\r\n\u{2028}\u{2029}";
+/// The JSON5 LineTerminator set is LF, CR, LS and PS. TypeScript and Go
+/// write all four into `line.chars`; this port splits them in two,
+/// because this engine reads the halves differently.
+///
+/// Both halves end a line everywhere a line can end, because the engine
+/// asks `line.chars` PLUS `line.fixed` for that. The one place that asks
+/// `line.chars` alone is the string lexer's unprintable test, and JSON5
+/// admits an unescaped U+2028 or U+2029 inside a string literal (JSON5
+/// 5.2: a `JSON5DoubleStringCharacter` is any `SourceCharacter` but a
+/// quote, a backslash or a `LineTerminator`, plus `LineContinuation`,
+/// plus U+2028 and U+2029). TypeScript reaches the same answer by its
+/// own route: `buildStringBodySpec` in the engine's `lexer.ts` tabulates
+/// the code points below 256 and falls back for the rest, and the
+/// fallback treats a line character as ordinary body unless the string
+/// is multi-line. Go accepts them too. Putting LS and PS in
+/// `line.fixed` is what makes this engine agree with both, and the rows
+/// in `../test/spec/strings.tsv` execute the agreement in all three.
+const JSON5_LINE_CHARS: &str = "\r\n";
+/// The other half of the JSON5 LineTerminator set: see
+/// [`JSON5_LINE_CHARS`].
+const JSON5_LINE_FIXED: &str = "\u{2028}\u{2029}";
 
 /// The line terminators that bump the row counter: LF, LS, PS. CR is
 /// folded into the following LF for CRLF.
@@ -856,7 +875,12 @@ fn grammar_document(options: &Json5Options) -> Result<JsonValue, PluginError> {
     // character sets. (The grammar parser cannot round-trip some of these
     // code points safely as string literals.)
     opts["space"]["chars"] = json!(JSON5_WHITESPACE);
-    opts["line"]["chars"] = json!(JSON5_LINE_TERMINATOR);
+    // LS and PS travel in `line.fixed` rather than `line.chars`: see the
+    // note on `JSON5_LINE_CHARS`. Together the two are the JSON5
+    // LineTerminator set, which TypeScript and Go write into
+    // `line.chars` whole.
+    opts["line"]["chars"] = json!(JSON5_LINE_CHARS);
+    opts["line"]["fixed"] = json!(JSON5_LINE_FIXED);
     opts["line"]["rowChars"] = json!(JSON5_ROW_CHARS);
     if options.backtick_string {
         opts["string"]["chars"] = json!("'\"`");

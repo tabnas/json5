@@ -27,3 +27,9 @@ input	expected	opts
 {\\u{41}:1}	ERROR
 {\\uD835\\uDC00:1}	ERROR
 {\\uD835:1}	ERROR
+# A raw astral character is a letter to a reader that walks code POINTS,
+# and an unpaired high surrogate to one that walks UTF-16 code units. In
+# a LATER position all three runtimes agree, because the text check has
+# already claimed the token. In the FIRST position they do not, and that
+# row is in ../divergent.tsv rather than here.
+{a𝒜:1}	{"a𝒜":1}

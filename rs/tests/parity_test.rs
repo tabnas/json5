@@ -15,7 +15,7 @@ mod common;
 
 use std::fs;
 
-use tabnas_support::{parse_expect, Runner, Value};
+use tabnas_support::{load_spec_dir, parse_expect, Runner, Value};
 
 use common::{options_from_column, parse_fresh, spec_dir};
 
@@ -97,4 +97,68 @@ fn every_fixture_has_the_standard_shape() {
             "BESPOKE_SHAPE names {file}.tsv, which does not exist"
         );
     }
+}
+
+/// The fixture CENSUS: every file the runner loads, and how many rows it
+/// finds in each.
+///
+/// `spec()` above runs whatever it is given, so a row that stops being a
+/// row is silently one fewer assertion and nothing goes red. This is the
+/// tripwire for that: a file that vanishes, a file that arrives without
+/// being noticed, and a row that turns into a comment all fail here and
+/// name themselves.
+///
+/// The numbers are the LOADER's, not a reader's. A `#` line is a comment
+/// only when it holds no tab, because a JSON5 source may itself start
+/// with `#`: `comments.tsv` and `options.tsv` each carry two hash rows
+/// that look like commentary and are data. A hand census that skipped
+/// every `#` line undercounted this directory by exactly those four, and
+/// reported the wrong total with complete confidence.
+///
+/// Adding a fixture row SHOULD fail this test once. Update the number in
+/// the same commit, deliberately.
+const CENSUS: &[(&str, usize)] = &[
+    ("arrays.tsv", 9),
+    ("comments.tsv", 10),
+    ("infinity-nan.tsv", 8),
+    ("json-is-json5.tsv", 5),
+    ("json5-org.tsv", 2),
+    ("keys.tsv", 23),
+    ("numbers.tsv", 26),
+    ("objects.tsv", 12),
+    ("options.tsv", 22),
+    ("primitives.tsv", 8),
+    ("rejects-non-json5.tsv", 6),
+    ("strings.tsv", 47),
+    ("trailing-commas.tsv", 5),
+];
+
+#[test]
+fn the_fixture_census_is_the_rows_the_runner_runs() {
+    let dir = spec_dir();
+    // The runner's own load options, so this counts what `spec()` runs
+    // rather than what a second reader thinks the files hold.
+    let specs = load_spec_dir(&dir, runner().load_options())
+        .unwrap_or_else(|error| panic!("{}: {error}", dir.display()));
+
+    let found: Vec<(String, usize)> = specs
+        .iter()
+        .map(|spec| (spec.file.clone(), spec.rows.len()))
+        .collect();
+    let expected: Vec<(String, usize)> = CENSUS
+        .iter()
+        .map(|(name, rows)| ((*name).to_string(), *rows))
+        .collect();
+
+    assert_eq!(
+        found, expected,
+        "the fixture census changed.\n  found:    {found:?}\n  recorded: {expected:?}\n  \
+         If a row or a file was ADDED, update CENSUS in the same commit. If one went \
+         MISSING, it is no longer asserting anything."
+    );
+    assert_eq!(
+        found.iter().map(|(_, rows)| rows).sum::<usize>(),
+        183,
+        "the total row count changed; update it with CENSUS"
+    );
 }

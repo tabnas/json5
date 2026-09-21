@@ -66,3 +66,71 @@ fn parse_reuses_instance() {
         build.as_secs_f64() / reuse.as_secs_f64().max(f64::EPSILON)
     );
 }
+
+/// Cost grows about LINEARLY with the size of the input.
+///
+/// This is the other half of the untrusted-input rule (porting playbook
+/// section 7): a parser that cannot be made to panic can still be made
+/// to sit there. A quadratic rescan is the usual way, and it hides well,
+/// because every fixture in the suite is small enough not to notice it.
+///
+/// Machine-INDEPENDENT, like the guard above: it compares two sizes on
+/// the same machine in the same run, so a slow or busy box moves both
+/// numbers together. Two details make it robust rather than merely
+/// hopeful. The sizes differ by 4, so a quadratic parse would take
+/// SIXTEEN times as long where a linear one takes four. And each size is
+/// the BEST of three runs, because scheduler noise on a shared box only
+/// ever adds time, so the minimum is the closest to the real cost. The
+/// bound of 12 sits between the two: a quadratic regression fails it,
+/// and a descheduled sample does not.
+///
+/// Measured while this was written, on a four-core box with other work
+/// on it: about 0.11 ms per array element and 0.4 ms per object entry,
+/// flat from 5,000 to 80,000 elements.
+#[test]
+fn cost_grows_about_linearly_with_input_size() {
+    const SMALL: usize = 1_000;
+    const FACTOR: usize = 4;
+    const BOUND: u32 = 12;
+
+    let parser = make();
+    let best = |src: &str| {
+        (0..3)
+            .map(|_| {
+                let start = Instant::now();
+                parse_with(&parser, src).expect("a well-formed source");
+                start.elapsed()
+            })
+            .min()
+            .expect("three runs")
+    };
+
+    let array = |n: usize| format!("[{}]", "1,".repeat(n));
+    let object = |n: usize| {
+        let mut out = String::from("{");
+        for index in 0..n {
+            out.push_str(&format!("k{index}:1,"));
+        }
+        out.push('}');
+        out
+    };
+
+    for (shape, build) in [
+        ("array", &array as &dyn Fn(usize) -> String),
+        ("object", &object as &dyn Fn(usize) -> String),
+    ] {
+        let small = best(&build(SMALL));
+        let large = best(&build(SMALL * FACTOR));
+        assert!(
+            large < BOUND * small,
+            "{shape} parsing looks super-linear: {} elements took {small:?} and {} took \
+             {large:?}, a factor of {:.1} for {FACTOR} times the input (want under {BOUND}). \
+             A quadratic rescan would be about {}.",
+            SMALL,
+            SMALL * FACTOR,
+            large.as_secs_f64() / small.as_secs_f64().max(f64::EPSILON),
+            FACTOR * FACTOR
+        );
+        println!("{shape}: {SMALL}={small:?}  {}={large:?}", SMALL * FACTOR);
+    }
+}

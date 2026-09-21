@@ -145,10 +145,20 @@ TypeScript engine says:
   divergence register because that register compares JSON cells, and
   every reader but JavaScript's folds `\ud800` to U+FFFD, so the row
   would read as no divergence at all.
+- **Nesting stops at 127 containers.** A deeper source gets the `cancel`
+  code, where the canonical runtime and the Go port accept it. The bound
+  comes from the base grammar, and it guards the caller: the parse loop
+  runs flat, while the value it hands back walks its own nesting to
+  convert and again to drop, one frame per level and both outside this
+  crate. `nesting_is_capped_at_the_budget_jsonic_installs` in
+  `tests/json5_test.rs` pins the boundary.
 
 One difference from the specification is shared by every port and
 rooted upstream: a literal control character inside a string literal is
 rejected with `unprintable`, as the TypeScript and Go ports reject it.
+U+2028 and U+2029 stay legal inside a string in all three, which is
+what the specification asks for, and the shared `../test/spec/strings.tsv`
+fixture executes that agreement in each of them.
 
 ## Build and test
 

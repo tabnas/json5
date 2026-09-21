@@ -74,3 +74,22 @@ input	ts	go	rust	why
 # verdict.
 ["😀" 1]	ERROR:unexpected@1:7	ERROR:unexpected@1:6	ERROR:unexpected@1:6	astral column, permanent
 ["ab😀cd" 1]	ERROR:unexpected@1:11	ERROR:unexpected@1:10	ERROR:unexpected@1:10	astral column, permanent
+# --- Astral IdentifierStart: the SAME UTF-16 seam, from the other side --
+# TypeScript's text check asks isIdentifierStart(src[i]), and src[i] on a
+# JavaScript string is one UTF-16 CODE UNIT, so a character outside the
+# Basic Multilingual Plane presents its high surrogate, which belongs to
+# no Unicode letter category, and the token is never claimed. Go and Rust
+# read a whole character and see the letter the specification names:
+# ES5.1 7.6 makes an IdentifierStart a UnicodeLetter, and U+1D49C
+# MATHEMATICAL SCRIPT CAPITAL A is Lu.
+#
+# The repair belongs in ts/src/json5.ts: a text check reading a code
+# POINT would let the canonical accept what the specification describes,
+# and these rows would go. Until then the two ports are the ones that
+# match the specification. MEASURED 2026-09-21 in all three runtimes.
+#
+# The control is in spec/keys.tsv: an astral character in a LATER
+# position agrees everywhere, because by then the canonical check has
+# claimed the token and decodeIdentifierName walks code points.
+{𝒜:1}	ERROR:unexpected@1:2	{"𝒜":1}	{"𝒜":1}	astral IdentifierStart, ts/src/json5.ts
+{𝒜b:1}	ERROR:unexpected@1:2	{"𝒜b":1}	{"𝒜b":1}	astral IdentifierStart, ts/src/json5.ts
