@@ -1069,28 +1069,6 @@ pub fn json5(parser: &mut Tabnas, options: &Json5Options) -> Result<(), PluginEr
         Value::Number(radix_literal_value(literal, None).unwrap_or(f64::NAN))
     });
 
-    // The engine's own number lexer folds a base-prefixed literal digit
-    // by digit in `f64` and so loses the last place on a literal wider
-    // than the exact integer range -- the same defect the transform
-    // above used to carry, one layer down, and the one that runs under
-    // the DEFAULT options, where `number.hex` is on and the lexer claims
-    // `0x` and `0X` before any value definition sees them.
-    //
-    // A lex subscriber repairs the VALUE of a token the lexer has
-    // already accepted. It changes nothing about which literals are
-    // accepted, what token they are, or where they may appear: the
-    // source text decides the number, and re-deriving it from that text
-    // is idempotent.
-    let separator = options.number_separator.then_some('_');
-    parser.subscribe_lex(move |token, _rule, _context| {
-        if token.tin != TIN_NR {
-            return;
-        }
-        if let Some(value) = radix_literal_value(token.src.as_str(), separator) {
-            token.val = Value::Number(value);
-        }
-    });
-
     parser.state_action_with_next_ref(PAIR_KEY_CHECK, pair_key_check);
 
     let spec = tabnas::GrammarSpec::from_value(document).map_err(|error| PluginError(error.0))?;
