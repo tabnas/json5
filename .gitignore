@@ -39,3 +39,6 @@ yarn.lock
 
 # Written by the counts script while measuring, removed after.
 .vale-counts.ini
+
+# The Rust crate's build output (rs/target).
+target/

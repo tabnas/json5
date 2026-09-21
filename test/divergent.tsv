@@ -1,8 +1,9 @@
-input	ts	go	why
+input	ts	go	rust	why
 # divergent.tsv — where this repo's two ports DISAGREE, executed by both.
 #
 #   input  JSON5 source. Escapes \n \r \t \\ are decoded, as in test/spec.
-#   ts,go  what each port produces: a JSON value, or ERROR:<code>, or
+#   ts,go,rust
+#          what each port produces: a JSON value, or ERROR:<code>, or
 #          ERROR:<code>@<row>:<col> when the position is the disagreement.
 #   why    the audit item, and where the repair lives.
 #
@@ -62,13 +63,14 @@ input	ts	go	why
 # ts/test/text-ender.test.ts.
 # --- Astral column: RECORDED and PERMANENT, not a defect -----------------
 # TypeScript counts UTF-16 code units, so an astral character advances the
-# column by two; Go counts runes and reports one less. This is the argued
-# entry in parser's DIVERGENCE.md, and it is here so that it is EXECUTED
-# rather than only described. If either port changes, this row goes red.
+# column by two; Go counts runes and reports one less, and so does Rust,
+# whose engine counts chars. This is the argued entry in parser's
+# DIVERGENCE.md, and it is here so that it is EXECUTED rather than only
+# described. If any port changes, this row goes red.
 #
 # Note the direction. toml's position rows go the OTHER way (Go reporting
 # HIGHER, because it advances in bytes) and that IS a defect — audit P5,
 # repaired by tabnas/parser#124. Same symptom, opposite sign, opposite
 # verdict.
-["😀" 1]	ERROR:unexpected@1:7	ERROR:unexpected@1:6	astral column, permanent
-["ab😀cd" 1]	ERROR:unexpected@1:11	ERROR:unexpected@1:10	astral column, permanent
+["😀" 1]	ERROR:unexpected@1:7	ERROR:unexpected@1:6	ERROR:unexpected@1:6	astral column, permanent
+["ab😀cd" 1]	ERROR:unexpected@1:11	ERROR:unexpected@1:10	ERROR:unexpected@1:10	astral column, permanent

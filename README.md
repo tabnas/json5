@@ -16,9 +16,9 @@ continuations.
 
 Docs, guides, the error reference and the playground: **[tabnas.dev](https://tabnas.dev)**.
 
-Both ports share one grammar file and pass the full official
+All three ports share one grammar file and pass the full official
 [`json5/json5-tests`](https://github.com/json5/json5-tests) corpus (all
-114 fixtures) in TypeScript and in Go. Passing means both halves: the 83
+114 fixtures) in TypeScript, in Go and in Rust. Passing means both halves: the 83
 valid fixtures parse **to the expected value**, checked against the ES5
 engine that json5-tests' own README names as the oracle, and the 31
 invalid ones are rejected. A supplementary derived probe (every
@@ -39,6 +39,10 @@ npm install @tabnas/parser @tabnas/jsonic @tabnas/json5
 # Go
 go get github.com/tabnas/json5/go@latest
 ```
+
+The Rust crate (`tabnas-json5`) is not published: it is used as a
+sibling checkout beside `parser`, `json` and `jsonic`, with a Cargo
+`path` dependency. See [`rs/README.md`](rs/README.md).
 
 ## Example
 
@@ -68,6 +72,13 @@ v, _ := j.Parse(`{ a: 1, b: [2, 3,], }`)
 // v: map[string]any{"a": 1.0, "b": []any{2.0, 3.0}}
 ```
 
+**Rust**
+
+```rust
+let value = tabnas_json5::parse("{ a: 1, b: [2, 3,], }")?;
+// value.to_string(): {"a":1,"b":[2,3]}
+```
+
 ## Documentation
 
 Full documentation follows the [Diátaxis](https://diataxis.fr) framework
@@ -82,14 +93,16 @@ the concepts behind it.
 
 - [Tutorial](go/doc/tutorial.md) · [How-to guide](go/doc/guide.md) · [Reference](go/doc/reference.md) · [Concepts](go/doc/concepts.md)
 
+**Rust**: [`rs/README.md`](rs/README.md)
+
 ## Grammar
 
 The grammar is defined once in the top-level
-[`json5-grammar.jsonic`](json5-grammar.jsonic) and embedded into both the
-TypeScript ([`ts/src/json5.ts`](ts/src/json5.ts)) and Go
-([`go/json5.go`](go/json5.go)) implementations by
-[`ts/embed-grammar.js`](ts/embed-grammar.js), so the two ports stay in
-sync.
+[`json5-grammar.jsonic`](json5-grammar.jsonic) and embedded into the
+TypeScript ([`ts/src/json5.ts`](ts/src/json5.ts)), Go
+([`go/json5.go`](go/json5.go)) and Rust ([`rs/src/lib.rs`](rs/src/lib.rs))
+implementations by [`ts/embed-grammar.js`](ts/embed-grammar.js), so the
+three ports stay in sync.
 
 As a railroad/syntax diagram, generated from the live grammar with
 [`@tabnas/railroad`](https://github.com/tabnas/railroad):
