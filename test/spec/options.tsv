@@ -18,6 +18,13 @@ input	expected	opts
 # integer too. Same number as the numbers.tsv rows, through the other path.
 0Xa6f2f78f4f9bf44	751871859346751400	{"hex":false}
 	ERROR:json5_empty
+# A byte-order mark is JSON5 whitespace (U+FEFF), so a source that is
+# ONLY a BOM holds no value, exactly as a source of only spaces does,
+# and resolves to the declared empty result when requireValue is off.
+# An editor writes this file by itself, which is why it is a shared row
+# rather than a unit case in one runtime.
+﻿	ERROR:json5_no_value
+﻿	null	{"requireValue":false}
 // only a comment	ERROR:json5_no_value
 /* only a comment */	ERROR:json5_no_value
    	ERROR:json5_no_value
@@ -39,6 +46,17 @@ input	expected	opts
 # unterminated_comment is the better diagnosis and must not be swallowed.
 /* x	ERROR:unterminated_comment	{"requireValue":false}
 foo	"foo"	{"strictValue":false}
+# The same astral IdentifierStart seam as keys.tsv, at a VALUE position:
+# with strictValue off an unquoted run is a string, and its first
+# character goes through the same text check. Canonical TypeScript
+# refused both of these until 2026-09-21, when the check began reading a
+# code point; they were the two rows of that divergence the register
+# could not hold, because it has no opts column.
+𝒜	"𝒜"	{"strictValue":false}
+{a:𝒜}	{"a":"𝒜"}	{"strictValue":false}
+# The control at a value position: U+1F600 is So, so it opens nothing,
+# strictValue or not.
+😀	ERROR:unexpected	{"strictValue":false}
 # A hash-comment-only source. `hasValue` deliberately knows only the two
 # slash comment forms, in all three runtimes, so `#` counts as the start of
 # a value and the requireValue guard does not fire; the parse then fails on
@@ -50,6 +68,12 @@ foo	"foo"	{"strictValue":false}
 # source reaches the rules, and TypeScript falls out with no value at all
 # where Go and Rust answer the declared empty result. That row is NOT here,
 # because it is a divergence rather than a shared expectation, and the
-# register cannot hold it either: its runners carry no `opts` column.
+# register cannot hold it either: its runners carry no `opts` column. It
+# is pinned one runtime at a time, so all three columns of the table in
+# ../../DIVERGENCE.md are executed: hash-comment-only-with-require-value-off
+# in ts/test/json5.test.ts, TestHashCommentOnlyWithRequireValueOff in
+# go/json5_test.go, and
+# a_hash_comment_only_source_answers_the_declared_empty_result in
+# rs/tests/json5_test.rs.
 # A hash comment before a real value is a comment, as it should be.
 # c\n1	1	{"hashComment":true}

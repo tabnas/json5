@@ -12,6 +12,24 @@
 // the parser has started answering nonsense, and the cheapest way to
 // stop overflowing a stack is to stop parsing correctly. Each figure was
 // measured before it was written down.
+//
+// WHAT IS RUST-SPECIFIC AND WHAT IS NOT. Only the depth cap is this
+// port's own: `nesting_far_past_the_budget_is_refused_rather_than_run`
+// exists because a `Value` walks its own nesting in `to_json()` and
+// again in its derived drop, one caller frame per level, so the bound
+// `tabnas_jsonic` installs is what keeps an untrusted source away from
+// that walk. It is a recorded divergence, and the TypeScript and Go
+// columns of its table are pinned in their own suites.
+//
+// Everything else here is ordinary JSON5 behaviour that all three
+// runtimes owe, so all three execute it: the short forms are shared
+// fixture rows in `../../test/spec/options.tsv` (the empty, blank,
+// byte-order-mark-only and comments-only sources), and the long forms,
+// which no fixture cell can hold, are mirrored case for case and size
+// for size in `ts/test/untrusted.test.ts` and `go/untrusted_test.go`. A
+// case that lived here alone would let the canonical and the Go port
+// regress while this file stayed green, which is what the parity
+// contract forbids.
 
 use tabnas::Tabnas;
 use tabnas_json5::{make, parse_with};
@@ -48,8 +66,10 @@ fn nesting_far_past_the_budget_is_refused_rather_than_run() {
     }
 }
 
-/// Empty, blank and byte-order-mark-only sources are the three ways to
-/// send nothing, and each has its own code.
+/// Empty, blank, byte-order-mark-only and comments-only sources are the
+/// ways to send nothing, and each has its own code. The short forms are
+/// shared fixture rows; the long ones are here, and in the TypeScript
+/// and Go suites, because a megabyte does not fit a fixture cell.
 #[test]
 fn a_source_with_no_value_in_it_is_refused_with_a_code() {
     let j = make();

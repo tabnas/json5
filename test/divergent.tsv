@@ -74,22 +74,21 @@ input	ts	go	rust	why
 # verdict.
 ["😀" 1]	ERROR:unexpected@1:7	ERROR:unexpected@1:6	ERROR:unexpected@1:6	astral column, permanent
 ["ab😀cd" 1]	ERROR:unexpected@1:11	ERROR:unexpected@1:10	ERROR:unexpected@1:10	astral column, permanent
-# --- Astral IdentifierStart: the SAME UTF-16 seam, from the other side --
-# TypeScript's text check asks isIdentifierStart(src[i]), and src[i] on a
-# JavaScript string is one UTF-16 CODE UNIT, so a character outside the
-# Basic Multilingual Plane presents its high surrogate, which belongs to
-# no Unicode letter category, and the token is never claimed. Go and Rust
-# read a whole character and see the letter the specification names:
-# ES5.1 7.6 makes an IdentifierStart a UnicodeLetter, and U+1D49C
-# MATHEMATICAL SCRIPT CAPITAL A is Lu.
+# --- Astral IdentifierStart: CLOSED 2026-09-21, no longer a divergence -
+# Two rows stood here, recording that `{𝒜:1}` opened a key in Go and Rust
+# and was refused by TypeScript. The comment beside them said the repair
+# belonged in ts/src/json5.ts, which is what makes recording them here
+# wrong: this file asserts a difference that CANNOT be repaired, and that
+# one could. The canonical text check read `forward[0]`, one UTF-16 CODE
+# UNIT, so an astral character presented its high surrogate and matched no
+# letter category. It now reads a code POINT, and ES5.1 7.6 gets the
+# answer it asks for: an IdentifierStart is a UnicodeLetter, U+1D49C is Lu,
+# and a JavaScript engine accepts `var 𝒜 = 1` too.
 #
-# The repair belongs in ts/src/json5.ts: a text check reading a code
-# POINT would let the canonical accept what the specification describes,
-# and these rows would go. Until then the two ports are the ones that
-# match the specification. MEASURED 2026-09-21 in all three runtimes.
-#
-# The control is in spec/keys.tsv: an astral character in a LATER
-# position agrees everywhere, because by then the canonical check has
-# claimed the token and decodeIdentifierName walks code points.
-{𝒜:1}	ERROR:unexpected@1:2	{"𝒜":1}	{"𝒜":1}	astral IdentifierStart, ts/src/json5.ts
-{𝒜b:1}	ERROR:unexpected@1:2	{"𝒜b":1}	{"𝒜b":1}	astral IdentifierStart, ts/src/json5.ts
+# ALL FOUR INPUTS ARE STILL EXECUTED, and by all three runtimes: the two
+# key rows in spec/keys.tsv, beside the later-position control that was
+# always there and two further astral letters (U+10400 Lu, U+20000 Lo),
+# and the two strictValue:false rows in spec/options.tsv. Each file also
+# gained an astral NON-letter control, U+1F600 (So) and U+1D7CE (Nd), so
+# that reading a code point did not become accepting any astral
+# character.

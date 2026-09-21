@@ -17,6 +17,21 @@ names what pins it instead, and whether that pin asserts one runtime or
 all three. A hand measurement is a photograph of one day; only a row or
 a test keeps a figure honest, so each entry says which it has.
 
+Recording a difference here asserts that it CANNOT be repaired. Where
+the canonical is simply wrong, the repair belongs in `ts/src/json5.ts`
+and the rows belong in a shared fixture. An entry whose own prose names
+a fixable defect is a false claim of impossibility, and it is worse than
+no entry at all, because other ports copy from this file. One such entry
+stood here until 2026-09-21: an astral `IdentifierStart` opened a key in
+Go and Rust and was refused by the canonical, whose text check read one
+UTF-16 code unit and so saw a high surrogate. The check reads a code
+point now, the four inputs are rows of `test/spec/keys.tsv` and
+`test/spec/options.tsv`, and the entry is gone.
+
+Audited 2026-09-21, entry by entry: every table below is executed in all
+three runtimes, either as a register row or by a named test per column.
+No figure in this file rests on a hand measurement alone.
+
 ## Column positions after an astral character (engine, Go and Rust)
 
 The engine's token columns count characters, where the canonical
@@ -31,45 +46,6 @@ character outside the Basic Multilingual Plane is one further left.
 Argued upstream in `parser/DIVERGENCE.md` under "Column positions for
 astral characters", and cited here rather than re-adjudicated. Both rows
 are live in `test/divergent.tsv`, so all three runtimes execute them.
-
-## An astral IdentifierStart opens a key in the ports, not in TypeScript
-
-The same UTF-16 seam from the other side. The canonical text check asks
-`isIdentifierStart(src[i])`, and `src[i]` on a JavaScript string is one
-UTF-16 code unit, so a character outside the Basic Multilingual Plane
-presents its high surrogate, which belongs to no Unicode letter
-category, and the token is never claimed. Go and Rust read a whole
-character and see the letter the specification names: ES5.1 7.6 makes an
-`IdentifierStart` a `UnicodeLetter`, and U+1D49C MATHEMATICAL SCRIPT
-CAPITAL A is `Lu`.
-
-| input | TypeScript | Go | Rust |
-|---|---|---|---|
-| `{𝒜:1}` | `unexpected` at 1:2 | `{"𝒜":1}` | `{"𝒜":1}` |
-| `{𝒜b:1}` | `unexpected` at 1:2 | `{"𝒜b":1}` | `{"𝒜b":1}` |
-| `𝒜` with `strictValue: false` | `unexpected` at 1:1 | `"𝒜"` | `"𝒜"` |
-| `{a:𝒜}` with `strictValue: false` | `unexpected` at 1:4 | `{"a":"𝒜"}` | `{"a":"𝒜"}` |
-| `{a𝒜:1}` | `{"a𝒜":1}` | the same | the same |
-
-The last row is the control: an astral character in a LATER position
-agrees in all three, because by then the canonical check has claimed the
-token and `decodeIdentifierName` walks code points.
-
-The repair belongs in `ts/src/json5.ts`: a text check that reads a code
-POINT would let the canonical accept what the specification describes,
-and this entry would go. Until then the two ports are the ones that
-match the specification and the canonical is the one that does not, so
-neither port is changed to imitate the artifact.
-
-The first two rows are live in `test/divergent.tsv`, so all three
-runtimes execute them; the last row is live in `test/spec/keys.tsv`,
-where all three agree. The two `strictValue: false` rows cannot be:
-the three register runners each build one parser from the defaults and
-the file has no `opts` column. Those two are pinned by
-`an_astral_identifier_start_is_accepted_here_and_refused_by_typescript`
-in `rs/tests/json5_test.rs`, which asserts the RUST side only; the
-TypeScript and Go figures above were measured by hand on the date in the
-header, not by a test.
 
 ## A lone surrogate escape folds to U+FFFD in both ports
 
@@ -93,12 +69,15 @@ reader but JavaScript's folds `\ud800` to U+FFFD, so a `ts` cell of
 and Rust halves, which then refuse the row as recording no divergence.
 Measured, not assumed: both halves were run against exactly that row.
 `tabnas_support::lone_surrogate_at` exists to refuse the same cell in a
-shared `test/spec` fixture. Pinned instead by
+shared `test/spec` fixture. Pinned instead by one test per column, so
+every figure above is executed:
 `a_lone_surrogate_folds_to_the_replacement_character` in
-`rs/tests/json5_test.rs`, which asserts the RUST side only. Nothing in
-`go/` or `ts/` pins these five inputs today, so the two columns above
-are hand measurements taken on the date in the header, not assertions a
-suite would catch drifting.
+`rs/tests/json5_test.rs`, `lone-surrogate-survives-as-a-code-unit` in
+`ts/test/json5.test.ts`, and
+`TestLoneSurrogateFoldsToTheReplacementCharacter` in
+`go/json5_test.go`. The TypeScript one compares code UNITS, since the
+difference it records is invisible to a value comparison that has
+already folded the surrogate.
 
 ## A hash-comment-only source, with requireValue off
 
@@ -115,9 +94,35 @@ the grammar's declared empty result.
 
 The second row is the control, and it IS a shared fixture, executed by
 all three runtimes: it is in `test/spec/options.tsv`, beside a comment
-explaining why the first row is not. The register cannot hold the first
-row either, because its three runners build one parser from the defaults
-and the file has no `opts` column.
+explaining why the first row is not. Neither pin the shared files offer
+fits the first row. The register's three runners build one parser from
+the defaults and the file has no `opts` column; a `test/spec` fixture
+has an `opts` column but compares ONE expected value across all three
+runtimes, which is exactly what this row denies.
+
+Pinned instead by one option-aware test per column, so a change to any
+of the three results goes red:
+`a_hash_comment_only_source_answers_the_declared_empty_result` in
+`rs/tests/json5_test.rs`, `hash-comment-only-with-require-value-off` in
+`ts/test/json5.test.ts`, and `TestHashCommentOnlyWithRequireValueOff` in
+`go/json5_test.go`. The TypeScript one uses `assert.strictEqual`:
+`assert.deepEqual` compares `undefined` and `null` as equal, so the
+loose helper the file uses elsewhere would pass whichever came back and
+pin nothing at all. Go returns a bare `nil` for both, so its test pins
+what Go can distinguish, a value rather than an error.
+
+The difference is the ENGINE's, not the plugin's. All three plugins
+short-circuit a no-value source to the engine's own empty-source path,
+and all three use the same `hasValue` scan, which knows the two slash
+comment forms and not `#`. What differs is where that leaves the source:
+the TypeScript engine yields `undefined` when the rules match no value,
+and the Go and Rust engines yield the grammar's declared `emptyResult`.
+The repair therefore belongs upstream in `tabnas/parser`. A plugin-level
+workaround exists and is deliberately not taken: teaching `hasValue` the
+hash form would close this row and would also turn `# comment` under
+`requireValue` from `unexpected` into `json5_no_value` in all three
+runtimes, which is a behaviour change to the second row of this table
+and not a repair of the first.
 
 ## Nesting is bounded in the Rust port
 
@@ -159,11 +164,14 @@ Measured: that is the first check each of them makes. A Rust-only
 divergence becomes expressible when those two halves adopt
 `tabnas_support::Register` over every runtime column, which is also what
 `rs/tests/divergent_test.rs` is waiting for; that repair belongs to this
-repository. Pinned meanwhile by
-`nesting_is_capped_at_the_budget_jsonic_installs` in
-`rs/tests/json5_test.rs`, which asserts the RUST side only: the
-TypeScript and Go rows of the table above were measured by hand on the
-date in the header.
+repository. Pinned meanwhile by one test per column, so every figure
+above is executed: `nesting_is_capped_at_the_budget_jsonic_installs` in
+`rs/tests/json5_test.rs` for the bound, `nesting-is-unbounded` in
+`ts/test/json5.test.ts` and `TestNestingIsUnbounded` in
+`go/json5_test.go` for the absence of one. Those last two walk the
+parsed tree to its floor rather than only checking that the parse
+returned, so a runtime that silently truncated at some depth would fail
+them.
 
 ## The no-value error carries no position in TypeScript
 
@@ -178,3 +186,9 @@ lexer has a point to report. Both ports site them at the start of the
 source. Recorded for completeness rather than as a defect: a caller
 reading `row` and `col` gets a number from the ports and `undefined`
 from the canonical.
+
+No fixture column carries a position, so the position is pinned by one
+test per column: `the_no_value_errors_carry_a_position` in
+`rs/tests/json5_test.rs`, `the-no-value-errors-carry-no-position` in
+`ts/test/json5.test.ts`, and `TestTheNoValueErrorsCarryAPosition` in
+`go/json5_test.go`.

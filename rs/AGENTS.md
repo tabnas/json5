@@ -188,14 +188,25 @@ Every divergence, register row or not, also has a MEASURED table in
 `../DIVERGENCE.md` with the reason and who owns the repair. Only the
 nesting bound is the Rust port's alone: `tabnas_jsonic`'s `DEPTH_LIMIT`,
 inherited rather than added here, and unable to be a row for the reason
-below. The rest are shared with Go, the astral `IdentifierStart` among
-them: those two rows are live in the register, so all three runtimes
-execute them.
+below. The rest are shared with Go.
+
+A divergence asserts that a difference CANNOT be repaired. Where the
+canonical is simply wrong, the repair belongs in `ts/src/json5.ts` and
+the rows belong in a shared fixture, not here. The astral
+`IdentifierStart` entry was removed on 2026-09-21 on exactly that
+ground: its own comment named the canonical defect, so recording it was
+a claim of impossibility about something a one-line change fixed.
 
 ### What the register cannot hold
 
 Three shapes of divergence do not fit this file. None is a reason to
 widen the cell format; each is recorded where it can be executed.
+
+Each is pinned PER COLUMN, not only here. A test in this crate alone
+holds the Rust figure still and lets the TypeScript and Go ones drift
+while every suite stays green, which is what the 2026-09-21 audit of
+`../DIVERGENCE.md` was for: the three entries below now name a test in
+`ts/test/json5.test.ts` and one in `go/json5_test.go` as well.
 
 - **A lone surrogate.** `"\uD800"` is that character in TypeScript and
   U+FFFD here, because a Rust `String` is UTF-8. The register's cells
@@ -206,13 +217,23 @@ widen the cell format; each is recorded where it can be executed.
   exactly that row. `tabnas_support::lone_surrogate_at` exists to refuse
   the same cell in a shared `test/spec` fixture. Pinned instead by
   `a_lone_surrogate_folds_to_the_replacement_character` in
-  `tests/json5_test.rs`.
+  `tests/json5_test.rs`, with
+  `lone-surrogate-survives-as-a-code-unit` in `ts/test/json5.test.ts`
+  and `TestLoneSurrogateFoldsToTheReplacementCharacter` in
+  `go/json5_test.go` holding the other two columns.
 - **Anything needing non-default options.** The three register runners
   build one parser from the defaults and the file has no `opts` column.
   A hash-comment-only source under `hashComment` and `requireValue:
   false` is one such case: TypeScript yields no value where both ports
-  yield the declared empty result. Recorded in the comments of
-  `../test/spec/options.tsv`, beside the rows that DO hold.
+  yield the declared empty result. The shared fixtures cannot hold it
+  either, because they compare one expected value across all three.
+  Recorded in the comments of `../test/spec/options.tsv`, beside the
+  rows that DO hold, and pinned by
+  `a_hash_comment_only_source_answers_the_declared_empty_result` in
+  `tests/json5_test.rs`, with
+  `hash-comment-only-with-require-value-off` in `ts/test/json5.test.ts`
+  and `TestHashCommentOnlyWithRequireValueOff` in `go/json5_test.go`
+  holding the other two columns.
 - **Anything only THIS port diverges on.** `ts/test/divergent.test.ts`
   and `go/divergent_test.go` each compare their own column against ONE
   other (`ts` against `go`, and back), and the first thing each does is
@@ -223,10 +244,20 @@ widen the cell format; each is recorded where it can be executed.
   assumed: that check is `same(mine, theirs)` at the top of each loop.
   Recorded in `../DIVERGENCE.md` and pinned by
   `nesting_is_capped_at_the_budget_jsonic_installs` in
-  `tests/json5_test.rs`, which asserts the Rust side alone. It becomes a
-  row when those two halves read every runtime column, which is the same
-  change that collapses this file's runner into
+  `tests/json5_test.rs`, with `nesting-is-unbounded` in
+  `ts/test/json5.test.ts` and `TestNestingIsUnbounded` in
+  `go/json5_test.go` holding the absence of a bound in the other two.
+  It becomes a row when those two halves read every runtime column,
+  which is the same change that collapses this file's runner into
   `tabnas_support::Register`.
+
+The untrusted-input suite splits the same way. Only
+`nesting_far_past_the_budget_is_refused_rather_than_run` in
+`tests/untrusted_test.rs` is this port's own; the rest is ordinary JSON5
+behaviour, so the short cases are rows of `../test/spec/options.tsv` and
+the long ones are mirrored case for case and size for size in
+`ts/test/untrusted.test.ts` and `go/untrusted_test.go`.
+
 ## The corpus grader never skips
 
 `tests/suite_test.rs` panics when the corpus or the oracle is missing.

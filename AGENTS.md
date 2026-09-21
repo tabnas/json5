@@ -113,6 +113,16 @@ port's and fail a row whose two columns agree. Never write a divergence
 into prose alone, and never widen a claim of parity past what a test
 measures.
 
+Ask first whether the canonical is the thing that is wrong. Recording a
+difference asserts that it CANNOT be repaired, and an entry whose own
+prose names a fixable defect in `ts/src/json5.ts` is a false claim of
+impossibility other ports copy from. Fix the canonical, pin the
+corrected behaviour in `test/spec/`, and delete the entry. An entry that
+survives that question needs a pin PER COLUMN of its table, not only in
+the runtime that diverges: a table nothing executes goes stale with
+every suite green, which is how the 2026-08 audit found 29 recorded
+claims contradicted by execution.
+
 ### The conformance corpus (`test/json5-tests/`)
 
 The fixture extension encodes the expected outcome (see

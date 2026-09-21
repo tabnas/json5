@@ -123,10 +123,10 @@ const CENSUS: &[(&str, usize)] = &[
     ("infinity-nan.tsv", 8),
     ("json-is-json5.tsv", 5),
     ("json5-org.tsv", 2),
-    ("keys.tsv", 23),
+    ("keys.tsv", 31),
     ("numbers.tsv", 26),
     ("objects.tsv", 12),
-    ("options.tsv", 22),
+    ("options.tsv", 27),
     ("primitives.tsv", 8),
     ("rejects-non-json5.tsv", 6),
     ("strings.tsv", 47),
@@ -158,7 +158,7 @@ fn the_fixture_census_is_the_rows_the_runner_runs() {
     );
     assert_eq!(
         found.iter().map(|(_, rows)| rows).sum::<usize>(),
-        183,
+        196,
         "the total row count changed; update it with CENSUS"
     );
 }

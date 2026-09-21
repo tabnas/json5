@@ -206,6 +206,77 @@ fn require_value() {
     assert_eq!(parsed(&jopt, "  // nothing\n/* here */"), "null");
 }
 
+/// Both ports site the two no-value errors at the start of the source,
+/// where the canonical raises them before the lexer has a point to
+/// report and leaves `row` and `col` undefined. The CODE agrees, and
+/// that is what `../test/spec/options.tsv` pins in all three runtimes;
+/// the POSITION is what diverges, and no fixture column carries it.
+/// This is the pin for the RUST column of that entry in
+/// `../DIVERGENCE.md`; `the-no-value-errors-carry-no-position` in
+/// `ts/test/json5.test.ts` and `TestTheNoValueErrorsCarryAPosition` in
+/// `go/json5_test.go` pin the other two.
+#[test]
+fn the_no_value_errors_carry_a_position() {
+    let j = make();
+    for (src, want) in [("//", "json5_no_value"), ("", "json5_empty")] {
+        let error = parse_with(&j, src).expect_err("refused");
+        assert_eq!(
+            (error.code.as_str(), error.row, error.col),
+            (want, 1, 1),
+            "{src:?}"
+        );
+    }
+}
+
+/// A hash-comment-only source under `hashComment`, with `requireValue`
+/// OFF. `has_value` deliberately knows only the two slash comment forms,
+/// in all three runtimes, so a `#` counts as the start of a value and
+/// the requireValue short-circuit does not fire. The source then reaches
+/// the rules, where this engine answers the grammar's declared
+/// `emptyResult` and the canonical TypeScript engine falls out with no
+/// value at all. That difference is recorded in `../DIVERGENCE.md`.
+///
+/// Neither pin the register offers fits: it has no `opts` column, and a
+/// shared fixture compares ONE expected value across three runtimes, so
+/// a row for this input would be a row the runtimes disagree about. This
+/// is the pin for the RUST column. The TypeScript and Go columns of that
+/// table are pinned by `hash-comment-only-with-require-value-off` in
+/// `ts/test/json5.test.ts` and `TestHashCommentOnlyWithRequireValueOff`
+/// in `go/json5_test.go`, so a change to any of the three goes red.
+///
+/// The expectation is `Value::Null` by NAME, not "some empty thing".
+/// `Value::Null` and `Value::Undefined` are different results, and which
+/// one comes back IS the divergence, so an assertion loose enough to
+/// accept either would pin nothing. Verified by flipping it to
+/// `Value::Undefined`, which fails.
+#[test]
+fn a_hash_comment_only_source_answers_the_declared_empty_result() {
+    let j = parser(|o| {
+        o.hash_comment = true;
+        o.require_value = false;
+    });
+    for src in ["# c", "# c\n# d", "   # c   "] {
+        assert_eq!(
+            parse_with(&j, src).unwrap_or_else(|error| panic!("{src:?}: {error}")),
+            tabnas::Value::Null,
+            "{src:?}"
+        );
+    }
+
+    // The slash forms answer the same thing, and they are shared fixture
+    // rows: only the hash form diverges.
+    let slash = parser(|o| o.require_value = false);
+    assert_eq!(
+        parse_with(&slash, "// c").expect("parsed"),
+        tabnas::Value::Null
+    );
+
+    // The control, itself a row of `../test/spec/options.tsv`: with
+    // requireValue ON the same source fails on the comment instead.
+    let strict = parser(|o| o.hash_comment = true);
+    assert_eq!(code(&strict, "# comment"), "unexpected");
+}
+
 #[test]
 fn non_strict_options() {
     let js = parser(|o| {
@@ -495,41 +566,14 @@ fn a_lone_surrogate_folds_to_the_replacement_character() {
     }
 }
 
-/// An ASTRAL `IdentifierStart` opening an unquoted key, or unquoted text
-/// under `strictValue: false`, is accepted here and by the Go port, and
-/// REFUSED by canonical TypeScript. The same UTF-16 seam as the lone
-/// surrogate, from the other side: the TypeScript text check asks
-/// `isIdentifierStart(src[i])`, and `src[i]` on a JavaScript string is
-/// one UTF-16 CODE UNIT, so a character outside the Basic Multilingual
-/// Plane presents its high surrogate, which is in no Unicode letter
-/// category. This port and the Go port read a whole character and see
-/// the letter the specification names (ES5.1 7.6: an `IdentifierStart`
-/// is a `UnicodeLetter`, and U+1D49C is `Lu`).
-///
-/// An astral character in a LATER position agrees in all three: the
-/// TypeScript check has already claimed the token by then, and
-/// `decodeIdentifierName` walks code POINTS.
-///
-/// Recorded in `../DIVERGENCE.md` with the measured table. The two KEY
-/// rows are live in `../test/divergent.tsv`, so all three runtimes
-/// execute them, and the later-position control is a row of
-/// `../test/spec/keys.tsv`. What is left here is the pair the register
-/// cannot hold, because its runners build one parser from the defaults
-/// and the file has no `opts` column: the two under `strictValue:
-/// false`. This test asserts the RUST side only.
-#[test]
-fn an_astral_identifier_start_is_accepted_here_and_refused_by_typescript() {
-    let j = make();
-    assert_eq!(parsed(&j, "{\u{1D49C}:1}"), r#"{"𝒜":1}"#);
-    assert_eq!(parsed(&j, "{\u{1D49C}b:1}"), r#"{"𝒜b":1}"#);
-
-    let loose = parser(|options| options.strict_value = false);
-    assert_eq!(parsed(&loose, "\u{1D49C}"), r#""𝒜""#);
-    assert_eq!(parsed(&loose, "{a:\u{1D49C}}"), r#"{"a":"𝒜"}"#);
-
-    // Agreed everywhere: the astral character is not the first one.
-    assert_eq!(parsed(&j, "{a\u{1D49C}:1}"), r#"{"a𝒜":1}"#);
-}
+// An astral `IdentifierStart` opening an unquoted key, or unquoted
+// text under `strictValue: false`, was a divergence until 2026-09-21:
+// the canonical text check read one UTF-16 code unit and saw a high
+// surrogate. It reads a code point now, so all three runtimes agree and
+// the cases belong in the shared fixtures rather than in a Rust-only
+// test: five astral letters opening a key in `../test/spec/keys.tsv`,
+// the two `strictValue: false` rows in `../test/spec/options.tsv`, and
+// an astral NON-letter control beside each.
 
 // --- The inherited nesting budget --------------------------------------
 
