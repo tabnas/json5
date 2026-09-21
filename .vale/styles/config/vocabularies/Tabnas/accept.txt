@@ -8,12 +8,14 @@
 # Vale enforce one spelling over the other, and it then reports the
 # other as a misspelling.
 
+[Bb]oolean
 [Bb]ooleans
 [Cc]onfig
 [Dd]efs
 [Ii]nlines
 [Jj]sonic
 [Ll]exing
+[Ll]ockfile
 [Ll]osslessly
 [Nn]pm
 [Pp]luggable

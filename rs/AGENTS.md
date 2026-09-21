@@ -87,12 +87,54 @@ document is installed, because the document is what looks them up:
   (`\1`..`\9`, `\0<digit>`, `\u{`) and returns `Skip`.
 - `@parse-trailing-dec-exp` and `@parse-uppercase-hex` are
   `value_transform_ref`s. Note the Rust number lexer already accepts
-  `0X` and `5.e4`, so the regex definitions mostly pin agreement.
+  `0X` and `5.e4`, so the regex definitions mostly pin agreement --
+  and `@parse-uppercase-hex` does not run at all under the default
+  options, because the number lexer claims `0X` first. See below.
 - `@json5-pair-key` is a `state_action_with_next_ref` pushed onto
   `pair.ao` by name through `define_rule`. It rejects a `#TX` key that
   is not an `IdentifierName` (returns the token marked `unexpected`) and
   writes the decoded name onto both the token and `u.key`, because
   jsonic's `@pairkey` has already copied the raw source there.
+
+## Base-prefixed numbers are re-read exactly
+
+`0x`, `0o` and `0b` literals do NOT keep the value the engine's number
+lexer computes. That lexer folds the digits into an `f64` one at a time
+(`value * base + digit`), which rounds at every digit; past the 53-bit
+exact integer range the roundings accumulate and the answer drifts from
+the correctly rounded one. `0Xa6f2f78f4f9bf44` came out
+`43a4de5ef1e9f37e` where canonical TypeScript's `parseInt` answers
+`43a4de5ef1e9f37f`: altered data, not a different spelling.
+
+`radix_literal_value` / `digits_to_f64` read the literal as an EXACT
+integer and round to a double ONCE, half to even, which is what
+`parseInt` on the same digits does. Two call sites use it:
+
+- `@parse-uppercase-hex`, the value definition that owns `0X` when
+  `hex` is false; and
+- a `subscribe_lex` hook that rewrites the value of any `#NR` token
+  whose source is a base-prefixed literal. Under the DEFAULT options
+  `number.hex` is on and the engine's lexer (matcher step 5) claims
+  `0x` and `0X` before any value definition (step 6) sees them, so the
+  transform alone would never run on them. Confirmed by making the
+  transform return a sentinel and watching `0X...` keep its old value.
+
+The hook repairs a VALUE only. It does not change which literals are
+accepted, what token they become, or where they may appear, and it
+re-derives the number from `token.src`, so running twice is running
+once. That is why it is safe as a subscriber rather than a matcher.
+
+The repair belongs upstream, in `parser`'s `lex_number`, and should be
+deleted from here when it lands there. Only the Rust engine has the
+defect: TypeScript and Go both answer the correctly rounded value, so
+this is the port catching up rather than a three-way disagreement.
+
+Pinned by `../test/spec/numbers.tsv`, the `hex:false` rows in
+`../test/spec/options.tsv`, and
+`wide_base_prefixed_literals_round_once_from_the_exact_integer` in
+`tests/json5_test.rs`, which asserts the IEEE-754 bits a decimal
+expectation cannot show. Verified against node over 4,000 random
+literals in all three bases.
 
 ## Token sets do not reach pre-built alternates
 
@@ -132,6 +174,28 @@ and the support crate's register compares error cells by code alone, so
 it would refuse every row as recording no divergence. When it compares
 positions, this file collapses to a `Register::new(runner, "rust",
 &["go", "ts", "rust"])` call.
+
+### What the register cannot hold
+
+Two shapes of divergence do not fit this file. Neither is a reason to
+widen the cell format; each is recorded where it can be executed.
+
+- **A lone surrogate.** `"\uD800"` is that character in TypeScript and
+  U+FFFD here, because a Rust `String` is UTF-8. The register's cells
+  are JSON values, and every reader but JavaScript's folds `\ud800` to
+  U+FFFD, so a `ts` cell of `"\ud800"` and a `rust` cell of `"\ufffd"`
+  MEAN the same thing to the Go and Rust halves, which then refuse the
+  row as recording no divergence. Measured: both halves were run against
+  exactly that row. `tabnas_support::lone_surrogate_at` exists to refuse
+  the same cell in a shared `test/spec` fixture. Pinned instead by
+  `a_lone_surrogate_folds_to_the_replacement_character` in
+  `tests/json5_test.rs`.
+- **Anything needing non-default options.** The three register runners
+  build one parser from the defaults and the file has no `opts` column.
+  A hash-comment-only source under `hashComment` and `requireValue:
+  false` is one such case: TypeScript yields no value where both ports
+  yield the declared empty result. Recorded in the comments of
+  `../test/spec/options.tsv`, beside the rows that DO hold.
 
 ## The corpus grader never skips
 

@@ -686,6 +686,118 @@ fn compile_serialized_regex(source: &str) -> Option<Regex> {
 }
 
 // ---------------------------------------------------------------------------
+// Base-prefixed integer literals.
+//
+// `0x`, `0o` and `0b` literals are read as an EXACT integer and rounded
+// to a double ONCE. The obvious fold -- `value = value * base + digit`
+// in `f64` -- rounds at every digit, and past the 53-bit exact integer
+// range those roundings accumulate: `0Xa6f2f78f4f9bf44` came out as
+// `43a4de5ef1e9f37e` where canonical TypeScript's `parseInt` answers
+// `43a4de5ef1e9f37f`, one unit in the last place low. That is silently
+// altered data, not a formatting difference.
+//
+// `parseInt` on a base-prefixed digit string is correctly rounded from
+// the exact integer, half to even, so that is what these reproduce. The
+// zon port solves the same problem over general bases in
+// `zon/rs/src/number.rs`; the bases here are all powers of two, so a
+// `u128` head plus a sticky bit replaces its limb arithmetic.
+// ---------------------------------------------------------------------------
+
+/// `2^k` for a non-negative `k`, exactly, saturating to infinity above
+/// the double range. A repeated multiply would round on the way up.
+/// Mirrors `pow2` in the zon port.
+fn pow2(k: i64) -> f64 {
+    debug_assert!(k >= 0, "only non-negative exponents arise here");
+    if k > 1023 {
+        f64::INFINITY
+    } else {
+        f64::from_bits(((k + 1023) as u64) << 52)
+    }
+}
+
+/// The exact integer the digit values denote, as the NEAREST double,
+/// rounding half to even. `bits` is the width of one digit, so the base
+/// is a power of two: 1 for binary, 3 for octal, 4 for hexadecimal.
+fn digits_to_f64(digits: &[u32], bits: u32) -> f64 {
+    // Leading zeros carry no value, and dropping them is what makes the
+    // head below wider than the 54 significant bits the rounding needs.
+    let start = digits.iter().position(|digit| *digit != 0);
+    let Some(start) = start else {
+        return 0.0;
+    };
+    let digits = &digits[start..];
+
+    // A u128 holds exactly this many digits of the base.
+    let head_len = (128 / bits) as usize;
+    let pack = |run: &[u32]| {
+        run.iter()
+            .fold(0u128, |value, digit| (value << bits) | u128::from(*digit))
+    };
+    if digits.len() <= head_len {
+        // A `u128` to `f64` cast rounds to nearest, ties to even, which
+        // is the rule `parseInt` follows.
+        return pack(digits) as f64;
+    }
+
+    // Longer than a u128: keep the top `head_len` digits, and remember
+    // whether anything below them was set. Those two are all the
+    // rounding can depend on. The leading digit is non-zero, so the head
+    // is at least 121 bits wide in every base here and `shift` is
+    // comfortably positive.
+    let head = pack(&digits[..head_len]);
+    let tail = &digits[head_len..];
+    let dropped = i64::from(bits) * tail.len() as i64;
+    let shift = 128 - head.leading_zeros() - 53;
+
+    let mut mantissa = (head >> shift) as u64;
+    let half = (head >> (shift - 1)) & 1 == 1;
+    let sticky = head & ((1u128 << (shift - 1)) - 1) != 0 || tail.iter().any(|digit| *digit != 0);
+    if half && (sticky || mantissa & 1 == 1) {
+        // At most 2^53, which is still an exact double.
+        mantissa += 1;
+    }
+    mantissa as f64 * pow2(dropped + i64::from(shift))
+}
+
+/// The value of a base-prefixed integer literal -- `0x1F`, `-0o17`,
+/// `+0b1010`, with an optional `separator` between digits -- or `None`
+/// when `src` is not one.
+///
+/// This is deliberately tolerant about which prefixes it reads: whether
+/// a literal is ACCEPTED is settled by the lexer and by the `hex` /
+/// `octal` / `binary` options long before this runs, and re-deciding it
+/// here would be a second copy of that rule.
+fn radix_literal_value(src: &str, separator: Option<char>) -> Option<f64> {
+    let (negative, rest) = match src.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, src.strip_prefix('+').unwrap_or(src)),
+    };
+    let rest = rest.strip_prefix('0')?;
+    let mut characters = rest.chars();
+    let bits = match characters.next()? {
+        'x' | 'X' => 4,
+        'o' | 'O' => 3,
+        'b' | 'B' => 1,
+        _ => return None,
+    };
+    let base = 1u32 << bits;
+
+    let mut digits = Vec::new();
+    for character in characters {
+        if Some(character) == separator {
+            continue;
+        }
+        digits.push(character.to_digit(base)?);
+    }
+    if digits.is_empty() {
+        return None;
+    }
+
+    let magnitude = digits_to_f64(&digits, bits);
+    Some(if negative { -magnitude } else { magnitude })
+}
+
+// ---------------------------------------------------------------------------
 // The plugin.
 // ---------------------------------------------------------------------------
 
@@ -952,18 +1064,31 @@ pub fn json5(parser: &mut Tabnas, options: &Json5Options) -> Result<(), PluginEr
         )
     });
     parser.value_transform_ref(PARSE_UPPERCASE_HEX, |groups: &[String]| {
+        // The regex admits no digit separator, so none is passed.
         let literal = groups.first().map(String::as_str).unwrap_or_default();
-        let (sign, digits) = match literal.strip_prefix('-') {
-            Some(rest) => (-1.0, rest),
-            None => (1.0, literal.strip_prefix('+').unwrap_or(literal)),
-        };
-        let magnitude = digits
-            .get(2..)
-            .unwrap_or_default()
-            .chars()
-            .filter_map(|digit| digit.to_digit(16))
-            .fold(0.0, |value, digit| value * 16.0 + f64::from(digit));
-        Value::Number(sign * magnitude)
+        Value::Number(radix_literal_value(literal, None).unwrap_or(f64::NAN))
+    });
+
+    // The engine's own number lexer folds a base-prefixed literal digit
+    // by digit in `f64` and so loses the last place on a literal wider
+    // than the exact integer range -- the same defect the transform
+    // above used to carry, one layer down, and the one that runs under
+    // the DEFAULT options, where `number.hex` is on and the lexer claims
+    // `0x` and `0X` before any value definition sees them.
+    //
+    // A lex subscriber repairs the VALUE of a token the lexer has
+    // already accepted. It changes nothing about which literals are
+    // accepted, what token they are, or where they may appear: the
+    // source text decides the number, and re-deriving it from that text
+    // is idempotent.
+    let separator = options.number_separator.then_some('_');
+    parser.subscribe_lex(move |token, _rule, _context| {
+        if token.tin != TIN_NR {
+            return;
+        }
+        if let Some(value) = radix_literal_value(token.src.as_str(), separator) {
+            token.val = Value::Number(value);
+        }
     });
 
     parser.state_action_with_next_ref(PAIR_KEY_CHECK, pair_key_check);

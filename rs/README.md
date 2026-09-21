@@ -117,8 +117,8 @@ API and a few points where the engine has no way to say what the
 TypeScript engine says:
 
 - **The entry point is `parse_with`, as in Go.** TypeScript wraps the
-  parser's own `start` to apply the `requireValue` rule and to strip
-  string line continuations before lexing. The Rust engine runs a
+  `start` method on the parser to apply the `requireValue` rule and to
+  strip string line continuations before lexing. The Rust engine runs a
   `parser.start` hook instead of the parse rather than before it, and a
   lexer hook cannot rewrite the source it is lexing, so both live in the
   package-level `parse_with` (and `parse`), the counterpart of the Go
@@ -136,7 +136,15 @@ TypeScript engine says:
   it arrived; a JavaScript object enumerates integer-like keys first.
 - **Lone surrogates fold to U+FFFD**, and the regular expression dialect
   is the `regex` crate's. Both come from the engine, and both are
-  recorded there.
+  recorded there. The fold is executed rather than only described:
+  `a_lone_surrogate_folds_to_the_replacement_character` in
+  `tests/json5_test.rs` pins `"\uD800"` to U+FFFD and pins a complete
+  surrogate pair to the single astral character it denotes. The Go port
+  folds the same way, for the same reason: a UTF-8 string cannot hold an
+  unpaired surrogate. It is pinned in a test rather than in the shared
+  divergence register because that register compares JSON cells, and
+  every reader but JavaScript's folds `\ud800` to U+FFFD, so the row
+  would read as no divergence at all.
 
 One difference from the specification is shared by every port and
 rooted upstream: a literal control character inside a string literal is

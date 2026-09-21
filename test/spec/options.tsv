@@ -1,8 +1,22 @@
 input	expected	opts
 0o17	15	{"octal":true,"binary":true,"numberSeparator":true}
+# Octal and binary are folded by the same conversion as hex, so a literal
+# past the exact integer range pins them too.
+0o46754573436475757744	701883937579327500	{"octal":true,"binary":true,"numberSeparator":true}
 0b101	5	{"octal":true,"binary":true,"numberSeparator":true}
 1_000	1000	{"octal":true,"binary":true,"numberSeparator":true}
+# `hex:false` turns off the engine's number lexer for base-prefixed
+# literals, which is what rejects `0x1F`. The uppercase `0X` form is not
+# lexed as a number in any runtime: it is matched by the `uppercaseHex`
+# value definition, which the option does not touch, so it keeps parsing.
+# That asymmetry is canonical TypeScript behaviour, and these two rows are
+# here so it is executed in all three runtimes rather than assumed.
 0x1F	ERROR:unexpected	{"hex":false}
+0X1F	31	{"hex":false}
+# With the number lexer off, the `uppercaseHex` value definition owns the
+# whole literal, so its own conversion has to round once from the exact
+# integer too. Same number as the numbers.tsv rows, through the other path.
+0Xa6f2f78f4f9bf44	751871859346751400	{"hex":false}
 	ERROR:json5_empty
 // only a comment	ERROR:json5_no_value
 /* only a comment */	ERROR:json5_no_value
@@ -25,3 +39,17 @@ input	expected	opts
 # unterminated_comment is the better diagnosis and must not be swallowed.
 /* x	ERROR:unterminated_comment	{"requireValue":false}
 foo	"foo"	{"strictValue":false}
+# A hash-comment-only source. `hasValue` deliberately knows only the two
+# slash comment forms, in all three runtimes, so `#` counts as the start of
+# a value and the requireValue guard does not fire; the parse then fails on
+# the comment with the engine's own code. Canonical TypeScript does exactly
+# this, so this row pins the agreement rather than a wish.
+# comment	ERROR:unexpected	{"hashComment":true}
+# With requireValue off, a hash-comment-only source is where TypeScript and
+# the two ports part company: `hasValue` does not recognise `#`, so the
+# source reaches the rules, and TypeScript falls out with no value at all
+# where Go and Rust answer the declared empty result. That row is NOT here,
+# because it is a divergence rather than a shared expectation, and the
+# register cannot hold it either: its runners carry no `opts` column.
+# A hash comment before a real value is a comment, as it should be.
+# c\n1	1	{"hashComment":true}

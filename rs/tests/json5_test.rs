@@ -407,3 +407,122 @@ fn parse_uses_a_shared_default_and_is_safe_across_threads() {
         handle.join().expect("a parsing thread panicked");
     }
 }
+
+// --- Recorded divergences the shared files cannot hold -----------------
+
+/// A LONE SURROGATE escape survives in canonical TypeScript and folds to
+/// U+FFFD here. Inherited from the engine, and from Rust itself: a
+/// JavaScript string is UTF-16 and may hold an unpaired surrogate, while
+/// a Rust `String` (and a Go `string`) is UTF-8 and cannot. The Go port
+/// answers U+FFFD for the same inputs, so this is not a Rust-only
+/// deviation; it is where the two UTF-8 ports stand together.
+///
+/// It is pinned HERE rather than in `../test/divergent.tsv` because that
+/// register cannot express it. Its cells are JSON values, and every
+/// runtime but TypeScript reads them with a UTF-8 JSON decoder that
+/// folds `\ud800` to U+FFFD: a `ts` cell of `"\ud800"` and a `rust` cell
+/// of `"�"` then MEAN the same thing to the Go and Rust halves,
+/// which refuse the row as recording no divergence at all. Measured, not
+/// assumed -- both halves were run against exactly that row. The shared
+/// `test/spec` fixtures refuse such a cell outright:
+/// `tabnas_support::lone_surrogate_at` exists to find it.
+#[test]
+fn a_lone_surrogate_folds_to_the_replacement_character() {
+    let j = make();
+    for (src, want) in [
+        (r#""\uD800""#, "\u{FFFD}"),
+        (r#""\uDFFF""#, "\u{FFFD}"),
+        (r#""a\uD800b""#, "a\u{FFFD}b"),
+    ] {
+        match parse_with(&j, src) {
+            Ok(tabnas::Value::String(got)) => assert_eq!(got, want, "{src:?}"),
+            other => panic!("{src:?}: {other:?}"),
+        }
+    }
+
+    // A well-formed PAIR is a single astral character, not two folds.
+    match parse_with(&j, r#""𐀀""#) {
+        Ok(tabnas::Value::String(got)) => assert_eq!(got, "\u{10000}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+// --- Base-prefixed integers round once ---------------------------------
+
+/// The exact IEEE-754 bits, because a decimal expectation cannot show
+/// the defect this pins: a digit-by-digit floating-point fold lands one
+/// unit in the last place away from the correctly rounded value, and
+/// both spellings print alike at many digits. `test/spec/numbers.tsv`
+/// carries the same literals as shared rows; this is the bit-level
+/// statement of what those rows mean, plus the ties the fixture would
+/// make unreadable.
+///
+/// The expectations are ECMAScript's: `Number(BigInt(literal))`, which
+/// is what `parseInt` on the digits produces and so what the canonical
+/// TypeScript port returns. Verified against node over 4,000 random
+/// literals in all three bases.
+#[test]
+fn wide_base_prefixed_literals_round_once_from_the_exact_integer() {
+    let j = make();
+    let bits = |src: &str| match parse_with(&j, src) {
+        Ok(tabnas::Value::Number(got)) => got.to_bits(),
+        other => panic!("{src:?}: {other:?}"),
+    };
+
+    // The reported case. The fold answered 0x43a4de5ef1e9f37e.
+    assert_eq!(bits("0Xa6f2f78f4f9bf44"), 0x43a4_de5e_f1e9_f37f);
+    assert_eq!(bits("0xa6f2f78f4f9bf44"), 0x43a4_de5e_f1e9_f37f);
+    assert_eq!(bits("-0Xa6f2f78f4f9bf44"), 0xc3a4_de5e_f1e9_f37f);
+    assert_eq!(bits("+0xa6f2f78f4f9bf44"), 0x43a4_de5e_f1e9_f37f);
+
+    // Exactly representable, so nothing rounds.
+    assert_eq!(bits("0x1fffffffffffff"), 9_007_199_254_740_991f64.to_bits());
+
+    // Ties go to the even mantissa: 2^53+1 rounds down, 2^53+3 rounds up.
+    assert_eq!(bits("0X20000000000001"), 9_007_199_254_740_992f64.to_bits());
+    assert_eq!(bits("0X20000000000003"), 9_007_199_254_740_996f64.to_bits());
+
+    // Wider than a u128, so the tail only contributes a sticky bit.
+    assert_eq!(bits("0Xffffffffffffffffffffffffffffffffff"), {
+        let two: f64 = 2.0;
+        two.powi(136).to_bits()
+    });
+    assert_eq!(bits("0X10000000000000000000000000000000001"), {
+        let two: f64 = 2.0;
+        two.powi(136).to_bits()
+    });
+
+    // Past the double range is infinity, as `Number` of the bigint is.
+    let wide = format!("0x{}", "f".repeat(300));
+    assert_eq!(bits(&wide), f64::INFINITY.to_bits());
+
+    // Leading zeros are not significant, and neither is a `0` literal.
+    assert_eq!(
+        bits("0X0000000000000000000000000000000000001"),
+        1f64.to_bits()
+    );
+    assert_eq!(bits("0x0"), 0f64.to_bits());
+
+    // The same conversion serves octal and binary under their options.
+    let jo = parser(|o| {
+        o.octal = true;
+        o.binary = true;
+    });
+    let bits_o = |src: &str| match parse_with(&jo, src) {
+        Ok(tabnas::Value::Number(got)) => got.to_bits(),
+        other => panic!("{src:?}: {other:?}"),
+    };
+    assert_eq!(bits_o("0o46754573436475757744"), 0x43a3_7b2f_71e9_efc0);
+    assert_eq!(
+        bits_o("0b1010011011110010111101111000111101001111100110111111010001000101"),
+        0x43e4_de5e_f1e9_f37f
+    );
+
+    // And with the `uppercaseHex` value definition rather than the number
+    // lexer, which is the path `hex: false` leaves in place.
+    let jn = parser(|o| o.hex = false);
+    match parse_with(&jn, "0Xa6f2f78f4f9bf44") {
+        Ok(tabnas::Value::Number(got)) => assert_eq!(got.to_bits(), 0x43a4_de5e_f1e9_f37f),
+        other => panic!("{other:?}"),
+    }
+}

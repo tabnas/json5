@@ -25,3 +25,13 @@ input	expected	opts
 1e400	Infinity
 -1e400	-Infinity
 1e-400	0
+# A hexadecimal literal wider than the exact double integer range has to be
+# rounded ONCE from the exact integer, the way ECMAScript parseInt does it.
+# A digit-by-digit floating-point fold rounds at every digit and lands one
+# unit in the last place low, which is altered data rather than a different
+# spelling of the same number. Both prefix spellings, and a negative.
+0xa6f2f78f4f9bf44	751871859346751400
+0Xa6f2f78f4f9bf44	751871859346751400
+-0Xa6f2f78f4f9bf44	-751871859346751400
+# Exactly half way, so the tie goes to the even mantissa: 2^53+1 is 2^53.
+0x20000000000001	9007199254740992
