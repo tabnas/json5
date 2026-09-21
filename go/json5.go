@@ -871,7 +871,17 @@ func Parse(j *jsonic.Jsonic, src string) (any, error) {
 // no value, but the engine's own unterminated_comment is the more useful
 // diagnostic and this declines to shadow it.
 //
-// Mirrors hasValue in ts/src/json5.ts; keep the two in step.
+// Mirrors hasValue in ts/src/json5.ts; keep the two in step. The
+// TypeScript and Rust copies take a hashComment flag; this one does not,
+// and the difference is not drift. That flag serves their
+// requireValue-OFF short-circuit, which resolves a no-value source to the
+// grammar's declared empty result; Go has no such short-circuit, because
+// the Go engine already answers the declared empty result when the rules
+// match no value, so Parse below reaches this scan only with requireValue
+// ON. In that branch all three runtimes pass the slash-only scan, so that
+// a hash-comment-only source is refused by the engine's own `unexpected`
+// rather than json5_no_value -- the `# comment` row of
+// ../test/spec/options.tsv.
 func hasValue(src string) bool {
 	// Decoded to runes because the whitespace JSON5 accepts is not all
 	// ASCII: NBSP, BOM, the Unicode Zs class and U+2028/U+2029 are

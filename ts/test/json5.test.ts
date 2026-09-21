@@ -188,42 +188,27 @@ describe('json5', () => {
     const j = new Tabnas().use(jsonic).use(Json5)
     assert.throws(() => j.parse(''), /JSON5/)
 
-    // Allow empty input (returns undefined).
+    // Allow empty input. It returns NULL, the emptyResult this grammar
+    // declares, not undefined: measured, and pinned in options.tsv as
+    // `\tnull\t{"requireValue":false}`. strictEqual, not the eq() above:
+    // assert.deepEqual compares undefined and null as EQUAL, so eq() would
+    // pass whichever came back and this line would assert nothing. It said
+    // `undefined` and asserted nothing until 2026-09-21.
     const jopt = new Tabnas().use(jsonic).use(Json5, { requireValue: false })
-    eq(jopt.parse(''), undefined)
+    assert.strictEqual(jopt.parse(''), null)
   })
 
-  // A hash-comment-only source under hashComment, with requireValue OFF.
-  // hasValue deliberately knows only the two slash comment forms, in all
-  // three runtimes, so a `#` counts as the start of a value and the
-  // requireValue short-circuit does not fire. The source reaches the
-  // rules, where this engine falls out with NO VALUE and both ports
-  // answer the grammar's declared emptyResult (null). That difference is
-  // recorded in ../../DIVERGENCE.md, and this is the pin for the
-  // TypeScript column of its table: the register has no opts column, and
-  // a shared fixture compares one expected value across three runtimes.
-  //
-  // strictEqual, not the eq() above: assert.deepEqual compares undefined
-  // and null as EQUAL, so the loose helper would pass whichever of the
-  // two came back and pin nothing at all.
-  test('hash-comment-only-with-require-value-off', () => {
-    const j = new Tabnas()
-      .use(jsonic)
-      .use(Json5, { hashComment: true, requireValue: false })
-    for (const src of ['# c', '# c\n# d', '   # c   ']) {
-      assert.strictEqual(j.parse(src), undefined, src)
-    }
-
-    // The slash forms answer null, and they are shared fixture rows:
-    // only the hash form diverges.
-    const slash = new Tabnas().use(jsonic).use(Json5, { requireValue: false })
-    assert.strictEqual(slash.parse('// c'), null)
-
-    // The control, itself a row of ../../test/spec/options.tsv: with
-    // requireValue ON the same source fails on the comment instead.
-    const strict = new Tabnas().use(jsonic).use(Json5, { hashComment: true })
-    assert.throws(() => strict.parse('# comment'), /unexpected/)
-  })
+  // A hash-comment-only source with requireValue OFF was a recorded
+  // divergence until 2026-09-21: the canonical's no-value scan knew only
+  // the two slash comment forms, so `#` counted as the start of a value,
+  // the source reached the rules and this engine fell out with UNDEFINED
+  // where both ports answered the declared empty result. The scan is
+  // told which comment forms the configuration has now, from the
+  // requireValue-OFF branch only, so all three answer null and the rows
+  // are shared fixture rows in ../../test/spec/options.tsv rather than a
+  // pin for one column here. The control that the repair had to leave
+  // alone -- `# comment` under requireValue, still `unexpected` -- is a
+  // row of that file too.
 
   test('strict-value-toggle', () => {
     // With strictValue disabled, bare words parse as strings
@@ -378,26 +363,56 @@ No \\\\n's!",
 
   // Both ports site the two no-value errors at the start of the source.
   // The canonical raises them before the lexer has a point to report, so
-  // a caller reading `row` and `col` gets undefined here and a number
-  // there. The CODE agrees, and that is what test/spec/options.tsv pins;
-  // this is the POSITION, which no fixture column carries.
+  // a caller gets a number from the ports and nothing here. The CODE
+  // agrees, and that is what test/spec/options.tsv pins; this is the
+  // POSITION, which no fixture column carries.
+  //
+  // WHICH FIELDS. This engine's errors carry the position as
+  // `lineNumber` and `columnNumber` (the ECMA-262 non-standard Error
+  // properties), NOT as `row` and `col`. `row` and `col` are undefined on
+  // an ORDINARY positioned error too, so a test that asserted them
+  // undefined here would be vacuously true: the canonical could grow a
+  // 1:1 position on these two and stay green while this entry went stale.
+  // Measured before it was written down, both ways round. The ordinary
+  // error below is the control that proves the names are the live ones:
+  // if the engine renamed them, THAT assertion fails, and this pin can
+  // never quietly become an assertion about two fields nobody writes.
   test('the-no-value-errors-carry-no-position', () => {
     const j = new Tabnas().use(jsonic).use(Json5)
+
+    function thrownBy(src: string): any {
+      try {
+        j.parse(src)
+      } catch (err) {
+        return err
+      }
+      return undefined
+    }
+
+    // The control: an ordinary positioned error DOES carry a position,
+    // in these fields. Two lines in, so the row is a measured 2 rather
+    // than a value a default could produce.
+    const positioned = thrownBy('{\n  a: @\n}')
+    assert.ok(positioned, 'the control should throw')
+    assert.deepStrictEqual(
+      [positioned.code, positioned.lineNumber, positioned.columnNumber],
+      ['unexpected', 2, 6],
+    )
 
     for (const [src, code] of [
       ['//', 'json5_no_value'],
       ['', 'json5_empty'],
     ]) {
-      let thrown: any
-      try {
-        j.parse(src)
-      } catch (err) {
-        thrown = err
-      }
+      const thrown = thrownBy(src)
       assert.ok(thrown, `${JSON.stringify(src)} should throw`)
       assert.strictEqual(thrown.code, code, JSON.stringify(src))
-      assert.strictEqual(thrown.row, undefined, JSON.stringify(src))
-      assert.strictEqual(thrown.col, undefined, JSON.stringify(src))
+      assert.strictEqual(thrown.lineNumber, undefined, JSON.stringify(src))
+      assert.strictEqual(thrown.columnNumber, undefined, JSON.stringify(src))
+      // And not under any other spelling: the property is ABSENT, which
+      // is what `undefined` above cannot by itself distinguish from a
+      // field the engine sets to undefined on purpose.
+      assert.strictEqual('lineNumber' in thrown, false, JSON.stringify(src))
+      assert.strictEqual('columnNumber' in thrown, false, JSON.stringify(src))
     }
   })
 })

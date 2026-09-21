@@ -228,54 +228,18 @@ fn the_no_value_errors_carry_a_position() {
     }
 }
 
-/// A hash-comment-only source under `hashComment`, with `requireValue`
-/// OFF. `has_value` deliberately knows only the two slash comment forms,
-/// in all three runtimes, so a `#` counts as the start of a value and
-/// the requireValue short-circuit does not fire. The source then reaches
-/// the rules, where this engine answers the grammar's declared
-/// `emptyResult` and the canonical TypeScript engine falls out with no
-/// value at all. That difference is recorded in `../DIVERGENCE.md`.
-///
-/// Neither pin the register offers fits: it has no `opts` column, and a
-/// shared fixture compares ONE expected value across three runtimes, so
-/// a row for this input would be a row the runtimes disagree about. This
-/// is the pin for the RUST column. The TypeScript and Go columns of that
-/// table are pinned by `hash-comment-only-with-require-value-off` in
-/// `ts/test/json5.test.ts` and `TestHashCommentOnlyWithRequireValueOff`
-/// in `go/json5_test.go`, so a change to any of the three goes red.
-///
-/// The expectation is `Value::Null` by NAME, not "some empty thing".
-/// `Value::Null` and `Value::Undefined` are different results, and which
-/// one comes back IS the divergence, so an assertion loose enough to
-/// accept either would pin nothing. Verified by flipping it to
-/// `Value::Undefined`, which fails.
-#[test]
-fn a_hash_comment_only_source_answers_the_declared_empty_result() {
-    let j = parser(|o| {
-        o.hash_comment = true;
-        o.require_value = false;
-    });
-    for src in ["# c", "# c\n# d", "   # c   "] {
-        assert_eq!(
-            parse_with(&j, src).unwrap_or_else(|error| panic!("{src:?}: {error}")),
-            tabnas::Value::Null,
-            "{src:?}"
-        );
-    }
-
-    // The slash forms answer the same thing, and they are shared fixture
-    // rows: only the hash form diverges.
-    let slash = parser(|o| o.require_value = false);
-    assert_eq!(
-        parse_with(&slash, "// c").expect("parsed"),
-        tabnas::Value::Null
-    );
-
-    // The control, itself a row of `../test/spec/options.tsv`: with
-    // requireValue ON the same source fails on the comment instead.
-    let strict = parser(|o| o.hash_comment = true);
-    assert_eq!(code(&strict, "# comment"), "unexpected");
-}
+// A hash-comment-only source with `require_value` OFF was a recorded
+// divergence until 2026-09-21: the canonical's no-value scan knew only
+// the two slash comment forms, so `#` counted as the start of a value,
+// the source reached the rules, and the canonical fell out with
+// `undefined` where this port and Go answered the declared empty
+// result. The canonical's scan is told which comment forms the
+// configuration has now, from its `requireValue`-OFF branch only, so all
+// three answer null and the inputs are shared fixture rows in
+// `../../test/spec/options.tsv` rather than a pin for one column here.
+// `has_value` here takes the same flag, so both runtimes that have the
+// short-circuit reach the result by the same route; measured before and
+// after, this port's answer was null either way.
 
 #[test]
 fn non_strict_options() {
@@ -548,10 +512,16 @@ fn a_line_separator_is_legal_inside_a_string_but_still_ends_a_line() {
 #[test]
 fn a_lone_surrogate_folds_to_the_replacement_character() {
     let j = make();
+    // Every row of the entry's table, so the Rust column is executed
+    // whole. The reversed-halves row was missing until 2026-09-21: the
+    // TypeScript and Go mirrors carried it and this one did not, so one
+    // of the five figures rested on a hand measurement. Measured here:
+    // U+FFFD U+FFFD, two folds.
     for (src, want) in [
         (r#""\uD800""#, "\u{FFFD}"),
         (r#""\uDFFF""#, "\u{FFFD}"),
         (r#""a\uD800b""#, "a\u{FFFD}b"),
+        (r#""\uDE00\uD83D""#, "\u{FFFD}\u{FFFD}"),
     ] {
         match parse_with(&j, src) {
             Ok(tabnas::Value::String(got)) => assert_eq!(got, want, "{src:?}"),
@@ -559,9 +529,14 @@ fn a_lone_surrogate_folds_to_the_replacement_character() {
         }
     }
 
-    // A well-formed PAIR is a single astral character, not two folds.
-    match parse_with(&j, r#""𐀀""#) {
-        Ok(tabnas::Value::String(got)) => assert_eq!(got, "\u{10000}"),
+    // The control, on the same input the TypeScript and Go mirrors use
+    // and the table records: a well-formed PAIR is ONE astral
+    // character, not two folds.
+    match parse_with(&j, "\"\u{1F600}\"") {
+        Ok(tabnas::Value::String(got)) => {
+            assert_eq!(got.chars().count(), 1);
+            assert_eq!(got, "\u{1F600}");
+        }
         other => panic!("{other:?}"),
     }
 }
@@ -591,13 +566,41 @@ fn a_lone_surrogate_folds_to_the_replacement_character() {
 /// `Value` walks its own nesting in `to_json()`, and again in the
 /// derived drop it has no iterative replacement for, both outside this
 /// crate and both one frame per level.
+///
+/// The accepted depth is WALKED to its floor, not merely parsed. The
+/// entry's Rust column reads "127 arrays" and "127 objects", and a
+/// regression that accepted the document and truncated the value would
+/// have kept an `unwrap()` here green while that figure went false. The
+/// TypeScript and Go columns walk their trees for the same reason.
 #[test]
 fn nesting_is_capped_at_the_budget_jsonic_installs() {
     const LIMIT: usize = 127;
     let j = make();
     for (open, close, mid) in [("[", "]", ""), ("{a:", "}", "1")] {
         let at = |n: usize| format!("{}{mid}{}", open.repeat(n), close.repeat(n));
-        parse_with(&j, &at(LIMIT)).unwrap_or_else(|error| panic!("{LIMIT} levels: {error}"));
+        let accepted =
+            parse_with(&j, &at(LIMIT)).unwrap_or_else(|error| panic!("{LIMIT} levels: {error}"));
+        let mut level = 0;
+        let mut node = accepted;
+        loop {
+            let next = match &node {
+                tabnas::Value::Array(items) if !items.is_empty() => items[0].clone(),
+                tabnas::Value::Object(map) => match map.get("a") {
+                    Some(next) => next.clone(),
+                    None => break,
+                },
+                _ => break,
+            };
+            level += 1;
+            node = next;
+        }
+        // The innermost `[]` is empty, so the array walk stops one level
+        // short of the bracket count; the object walk reaches the scalar.
+        let want = if mid.is_empty() { LIMIT - 1 } else { LIMIT };
+        assert_eq!(level, want, "{LIMIT} levels of {open}");
+        if !mid.is_empty() {
+            assert_eq!(node, tabnas::Value::Number(1.0), "{LIMIT} levels of {open}");
+        }
         match parse_with(&j, &at(LIMIT + 1)) {
             Err(error) => assert_eq!(error.code, "cancel", "{} levels", LIMIT + 1),
             Ok(value) => panic!("{} levels parsed: {}", LIMIT + 1, json(&value)),

@@ -110,10 +110,10 @@ fn every_fixture_has_the_standard_shape() {
 ///
 /// The numbers are the LOADER's, not a reader's. A `#` line is a comment
 /// only when it holds no tab, because a JSON5 source may itself start
-/// with `#`: `comments.tsv` and `options.tsv` each carry two hash rows
-/// that look like commentary and are data. A hand census that skipped
-/// every `#` line undercounted this directory by exactly those four, and
-/// reported the wrong total with complete confidence.
+/// with `#`: `comments.tsv` carries two hash rows that look like
+/// commentary and are data, and `options.tsv` now carries seven. A hand
+/// census that skipped every `#` line undercounted this directory by
+/// exactly those, and reported the wrong total with complete confidence.
 ///
 /// Adding a fixture row SHOULD fail this test once. Update the number in
 /// the same commit, deliberately.
@@ -126,7 +126,7 @@ const CENSUS: &[(&str, usize)] = &[
     ("keys.tsv", 31),
     ("numbers.tsv", 26),
     ("objects.tsv", 12),
-    ("options.tsv", 27),
+    ("options.tsv", 33),
     ("primitives.tsv", 8),
     ("rejects-non-json5.tsv", 6),
     ("strings.tsv", 47),
@@ -158,7 +158,7 @@ fn the_fixture_census_is_the_rows_the_runner_runs() {
     );
     assert_eq!(
         found.iter().map(|(_, rows)| rows).sum::<usize>(),
-        196,
+        202,
         "the total row count changed; update it with CENSUS"
     );
 }

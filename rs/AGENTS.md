@@ -192,21 +192,28 @@ below. The rest are shared with Go.
 
 A divergence asserts that a difference CANNOT be repaired. Where the
 canonical is simply wrong, the repair belongs in `ts/src/json5.ts` and
-the rows belong in a shared fixture, not here. The astral
-`IdentifierStart` entry was removed on 2026-09-21 on exactly that
-ground: its own comment named the canonical defect, so recording it was
-a claim of impossibility about something a one-line change fixed.
+the rows belong in a shared fixture, not here. Two entries were removed
+on 2026-09-21 on exactly that ground. The astral `IdentifierStart` one:
+its own comment named the canonical defect, so recording it was a claim
+of impossibility about something a one-line change fixed. The
+hash-comment-only one: it parked the repair on the claim that the
+canonical could not learn the `#` form without changing its
+`requireValue` control row, and the canonical turned out to call that
+scan from two separate `requireValue` branches. Before recording
+anything, MEASURE the reason it cannot be repaired.
 
 ### What the register cannot hold
 
 Three shapes of divergence do not fit this file. None is a reason to
 widen the cell format; each is recorded where it can be executed.
 
-Each is pinned PER COLUMN, not only here. A test in this crate alone
-holds the Rust figure still and lets the TypeScript and Go ones drift
-while every suite stays green, which is what the 2026-09-21 audit of
-`../DIVERGENCE.md` was for: the three entries below now name a test in
-`ts/test/json5.test.ts` and one in `go/json5_test.go` as well.
+A divergence that survives is pinned PER COLUMN, not only here. A test
+in this crate alone holds the Rust figure still and lets the TypeScript
+and Go ones drift while every suite stays green, which is what the
+2026-09-21 audit of `../DIVERGENCE.md` was for: each entry that remains
+names a test in `ts/test/json5.test.ts` and one in `go/json5_test.go` as
+well, and each of those walks or reads what its figure claims rather
+than only checking that the call returned.
 
 - **A lone surrogate.** `"\uD800"` is that character in TypeScript and
   U+FFFD here, because a Rust `String` is UTF-8. The register's cells
@@ -221,19 +228,19 @@ while every suite stays green, which is what the 2026-09-21 audit of
   `lone-surrogate-survives-as-a-code-unit` in `ts/test/json5.test.ts`
   and `TestLoneSurrogateFoldsToTheReplacementCharacter` in
   `go/json5_test.go` holding the other two columns.
-- **Anything needing non-default options.** The three register runners
-  build one parser from the defaults and the file has no `opts` column.
-  A hash-comment-only source under `hashComment` and `requireValue:
-  false` is one such case: TypeScript yields no value where both ports
-  yield the declared empty result. The shared fixtures cannot hold it
-  either, because they compare one expected value across all three.
-  Recorded in the comments of `../test/spec/options.tsv`, beside the
-  rows that DO hold, and pinned by
-  `a_hash_comment_only_source_answers_the_declared_empty_result` in
-  `tests/json5_test.rs`, with
-  `hash-comment-only-with-require-value-off` in `ts/test/json5.test.ts`
-  and `TestHashCommentOnlyWithRequireValueOff` in `go/json5_test.go`
-  holding the other two columns.
+- **Anything needing non-default options.** The three REGISTER runners
+  build one parser from the defaults and `test/divergent.tsv` has no
+  `opts` column. The shared `test/spec` fixtures DO have one, so an
+  option-dependent difference belongs there the moment the three
+  runtimes agree on it. A hash-comment-only source under `hashComment`
+  and `requireValue: false` was recorded here as such a case until
+  2026-09-21, on the ground that the three could not be made to agree.
+  They could: the canonical's no-value scan is told which comment forms
+  the configuration has, from its `requireValue`-OFF branch alone, so
+  all three answer the declared empty result and the inputs are rows of
+  `../test/spec/options.tsv` with their two controls. `has_value` here
+  takes the same flag for the same reason. Nothing in this crate pins
+  that entry any more, because there is no entry.
 - **Anything only THIS port diverges on.** `ts/test/divergent.test.ts`
   and `go/divergent_test.go` each compare their own column against ONE
   other (`ts` against `go`, and back), and the first thing each does is
