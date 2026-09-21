@@ -98,36 +98,26 @@ document is installed, because the document is what looks them up:
 
 ## Base-prefixed numbers are re-read exactly
 
-`0x`, `0o` and `0b` literals do NOT keep the value the engine's number
-lexer computes. That lexer folds the digits into an `f64` one at a time
-(`value * base + digit`), which rounds at every digit; past the 53-bit
-exact integer range the roundings accumulate and the answer drifts from
-the correctly rounded one. `0Xa6f2f78f4f9bf44` came out
-`43a4de5ef1e9f37e` where canonical TypeScript's `parseInt` answers
-`43a4de5ef1e9f37f`: altered data, not a different spelling.
+`0x`, `0o` and `0b` literals are read as an EXACT integer and rounded to
+a double ONCE, half to even, which is what the canonical coercion does
+on the same digits. Folding the digits into an `f64` one at a time
+instead rounds at every digit, and past the 53-bit exact integer range
+the roundings accumulate and the answer drifts.
 
-`radix_literal_value` / `digits_to_f64` read the literal as an EXACT
-integer and round to a double ONCE, half to even, which is what
-`parseInt` on the same digits does. Two call sites use it:
+The engine used to fold that way, so this crate carried a `subscribe_lex`
+hook that re-derived the value of every base-prefixed token. That defect
+is fixed upstream, in `parser`'s `match_number`, and the hook is gone:
+the engine now answers correctly under the default options, where
+`number.hex` is on and its lexer claims `0x` and `0X` before any value
+definition sees them. Removing the hook was measured rather than assumed,
+by running this suite against the fixed engine with the hook gone, and
+again against the old engine with the hook gone, where the bit-pinning
+test fails.
 
-- `@parse-uppercase-hex`, the value definition that owns `0X` when
-  `hex` is false; and
-- a `subscribe_lex` hook that rewrites the value of any `#NR` token
-  whose source is a base-prefixed literal. Under the DEFAULT options
-  `number.hex` is on and the engine's lexer (matcher step 5) claims
-  `0x` and `0X` before any value definition (step 6) sees them, so the
-  transform alone would never run on them. Confirmed by making the
-  transform return a sentinel and watching `0X...` keep its old value.
-
-The hook repairs a VALUE only. It does not change which literals are
-accepted, what token they become, or where they may appear, and it
-re-derives the number from `token.src`, so running twice is running
-once. That is why it is safe as a subscriber rather than a matcher.
-
-The repair belongs upstream, in `parser`'s `lex_number`, and should be
-deleted from here when it lands there. Only the Rust engine has the
-defect: TypeScript and Go both answer the correctly rounded value, so
-this is the port catching up rather than a three-way disagreement.
+`radix_literal_value` and `digits_to_f64` stay, because
+`@parse-uppercase-hex` still needs them: that value definition owns `0X`
+when `hex` is false, which is the one configuration where the engine's
+lexer never sees the literal.
 
 Pinned by `../test/spec/numbers.tsv`, the `hex:false` rows in
 `../test/spec/options.tsv`, and
