@@ -354,7 +354,15 @@ const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
     const src: string = (lex as any).src
     if (!pnt || pnt.sI >= src.length) return undefined
     const forward = src.slice(pnt.sI)
-    const r = forward[0]
+    // Read a CODE POINT, not a code unit. `forward[0]` on a JavaScript
+    // string is one UTF-16 code unit, so a character outside the Basic
+    // Multilingual Plane presents its high surrogate, which belongs to
+    // no Unicode letter category, and `{𝒜:1}` was refused although
+    // ES5.1 7.6 makes an IdentifierStart a UnicodeLetter and U+1D49C
+    // MATHEMATICAL SCRIPT CAPITAL A is Lu. A lone surrogate reads as
+    // itself and is still refused, and `decodeIdentifierName` already
+    // walks code points, so the two halves now agree.
+    const r = String.fromCodePoint(forward.codePointAt(0) as number)
     if (isIdentifierStart(r)) return undefined
     const cfg: any = (lex as any).cfg
     const def = cfg?.value?.def || {}

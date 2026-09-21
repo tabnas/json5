@@ -193,6 +193,38 @@ describe('json5', () => {
     eq(jopt.parse(''), undefined)
   })
 
+  // A hash-comment-only source under hashComment, with requireValue OFF.
+  // hasValue deliberately knows only the two slash comment forms, in all
+  // three runtimes, so a `#` counts as the start of a value and the
+  // requireValue short-circuit does not fire. The source reaches the
+  // rules, where this engine falls out with NO VALUE and both ports
+  // answer the grammar's declared emptyResult (null). That difference is
+  // recorded in ../../DIVERGENCE.md, and this is the pin for the
+  // TypeScript column of its table: the register has no opts column, and
+  // a shared fixture compares one expected value across three runtimes.
+  //
+  // strictEqual, not the eq() above: assert.deepEqual compares undefined
+  // and null as EQUAL, so the loose helper would pass whichever of the
+  // two came back and pin nothing at all.
+  test('hash-comment-only-with-require-value-off', () => {
+    const j = new Tabnas()
+      .use(jsonic)
+      .use(Json5, { hashComment: true, requireValue: false })
+    for (const src of ['# c', '# c\n# d', '   # c   ']) {
+      assert.strictEqual(j.parse(src), undefined, src)
+    }
+
+    // The slash forms answer null, and they are shared fixture rows:
+    // only the hash form diverges.
+    const slash = new Tabnas().use(jsonic).use(Json5, { requireValue: false })
+    assert.strictEqual(slash.parse('// c'), null)
+
+    // The control, itself a row of ../../test/spec/options.tsv: with
+    // requireValue ON the same source fails on the comment instead.
+    const strict = new Tabnas().use(jsonic).use(Json5, { hashComment: true })
+    assert.throws(() => strict.parse('# comment'), /unexpected/)
+  })
+
   test('strict-value-toggle', () => {
     // With strictValue disabled, bare words parse as strings
     // (Jsonic's default text fallback).
@@ -268,6 +300,104 @@ No \\\\n's!",
     ]
     for (const src of cases) {
       eq(j.parse(src), JSON.parse(src))
+    }
+  })
+
+  // --- The TypeScript column of ../../DIVERGENCE.md -------------------
+  //
+  // Every entry in that file carries a measured `input | TypeScript | Go
+  // | Rust` table, and a table nothing executes goes stale without any
+  // suite going red. The three tests below are the TypeScript column of
+  // the three entries that no fixture row can hold. Each has a
+  // counterpart in `go/json5_test.go` and `rs/tests/json5_test.rs`.
+
+  // A JavaScript string is UTF-16 and may hold an UNPAIRED surrogate,
+  // where a Go `string` and a Rust `String` are UTF-8 and cannot, so both
+  // ports fold one to U+FFFD. The register cannot hold this: its cells
+  // are JSON values, and every reader but JavaScript's folds `\ud800` to
+  // U+FFFD, so the `ts` and `rust` cells would MEAN the same thing.
+  test('lone-surrogate-survives-as-a-code-unit', () => {
+    const j = new Tabnas().use(jsonic).use(Json5)
+
+    for (const [src, code] of [
+      ['"\\uD800"', 0xd800],
+      ['"\\uDFFF"', 0xdfff],
+    ] as [string, number][]) {
+      const got = j.parse(src) as string
+      assert.strictEqual(got.length, 1, src)
+      assert.strictEqual(got.charCodeAt(0), code, src)
+    }
+
+    const embedded = j.parse('"a\\uD800b"') as string
+    assert.deepStrictEqual(
+      [...embedded].map((c) => c.charCodeAt(0)),
+      [0x61, 0xd800, 0x62],
+    )
+
+    // Reversed halves stay two lone surrogates, not one astral character.
+    const reversed = j.parse('"\\uDE00\\uD83D"') as string
+    assert.deepStrictEqual(
+      [reversed.length, reversed.charCodeAt(0), reversed.charCodeAt(1)],
+      [2, 0xde00, 0xd83d],
+    )
+
+    // The control: a well-formed PAIR is one astral character in all
+    // three runtimes, not two folds.
+    const pair = j.parse('"😀"') as string
+    assert.strictEqual(pair.codePointAt(0), 0x1f600)
+    assert.strictEqual([...pair].length, 1)
+  })
+
+  // Nesting is BOUNDED in the Rust port and unbounded here and in Go.
+  // This is the TypeScript column of that table: the depths it records
+  // as parsing must keep parsing, or the entry is describing a runtime
+  // that no longer exists.
+  test('nesting-is-unbounded', () => {
+    const j = new Tabnas().use(jsonic).use(Json5)
+
+    for (const depth of [127, 128, 5000]) {
+      const array = j.parse('['.repeat(depth) + ']'.repeat(depth)) as unknown[]
+      let level = 0
+      let node: any = array
+      while (Array.isArray(node) && node.length > 0) {
+        level++
+        node = node[0]
+      }
+      assert.strictEqual(level, depth - 1, `${depth} nested arrays`)
+
+      const object = j.parse('{a:'.repeat(depth) + '1' + '}'.repeat(depth))
+      let olevel = 0
+      let onode: any = object
+      while (onode && 'object' === typeof onode) {
+        olevel++
+        onode = onode.a
+      }
+      assert.strictEqual(olevel, depth, `${depth} nested objects`)
+    }
+  })
+
+  // Both ports site the two no-value errors at the start of the source.
+  // The canonical raises them before the lexer has a point to report, so
+  // a caller reading `row` and `col` gets undefined here and a number
+  // there. The CODE agrees, and that is what test/spec/options.tsv pins;
+  // this is the POSITION, which no fixture column carries.
+  test('the-no-value-errors-carry-no-position', () => {
+    const j = new Tabnas().use(jsonic).use(Json5)
+
+    for (const [src, code] of [
+      ['//', 'json5_no_value'],
+      ['', 'json5_empty'],
+    ]) {
+      let thrown: any
+      try {
+        j.parse(src)
+      } catch (err) {
+        thrown = err
+      }
+      assert.ok(thrown, `${JSON.stringify(src)} should throw`)
+      assert.strictEqual(thrown.code, code, JSON.stringify(src))
+      assert.strictEqual(thrown.row, undefined, JSON.stringify(src))
+      assert.strictEqual(thrown.col, undefined, JSON.stringify(src))
     }
   })
 })

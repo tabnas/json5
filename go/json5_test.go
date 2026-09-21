@@ -277,6 +277,47 @@ func TestRequireValue(t *testing.T) {
 	}
 }
 
+// A hash-comment-only source under hashComment, with requireValue OFF.
+// hasValue deliberately knows only the two slash comment forms, in all
+// three runtimes, so a `#` counts as the start of a value and the
+// requireValue short-circuit does not fire. The source reaches the
+// rules, where this port answers the grammar's declared emptyResult and
+// the canonical TypeScript engine falls out with no value at all. That
+// difference is recorded in ../DIVERGENCE.md, and this is the pin for
+// the GO column of its table: the register has no opts column, and a
+// shared fixture compares one expected value across three runtimes.
+//
+// Go returns a bare nil for both null and "no value", so this pins what
+// Go can distinguish: a value, not an error, and that value is nil. The
+// null/undefined half of the table is pinned in the other two runtimes,
+// which can tell them apart.
+func TestHashCommentOnlyWithRequireValueOff(t *testing.T) {
+	j := parser(t, map[string]any{"hashComment": true, "requireValue": false})
+	for _, src := range []string{"# c", "# c\n# d", "   # c   "} {
+		v, err := Parse(j, src)
+		if err != nil {
+			t.Fatalf("Parse(j, %q) error: %v", src, err)
+		}
+		if v != nil {
+			t.Errorf("Parse(j, %q) = %#v, want nil", src, v)
+		}
+	}
+
+	// The slash forms answer the same thing, and they are shared fixture
+	// rows: only the hash form diverges.
+	slash := parser(t, map[string]any{"requireValue": false})
+	if v, err := Parse(slash, "// c"); err != nil || v != nil {
+		t.Errorf(`Parse(slash, "// c") = %#v, %v; want nil, nil`, v, err)
+	}
+
+	// The control, itself a row of ../test/spec/options.tsv: with
+	// requireValue ON the same source fails on the comment instead.
+	strict := parser(t, map[string]any{"hashComment": true})
+	if _, err := Parse(strict, "# comment"); err == nil {
+		t.Error(`Parse(strict, "# comment") expected an error, got nil`)
+	}
+}
+
 func TestNonStrictOptions(t *testing.T) {
 	js := parser(t, map[string]any{
 		"octal":           true,
@@ -344,6 +385,100 @@ func TestJSONIsJSON5(t *testing.T) {
 	for _, src := range cases {
 		if _, err := j.Parse(src); err != nil {
 			t.Errorf("Parse(%q) error: %v", src, err)
+		}
+	}
+}
+
+// --- The Go column of ../DIVERGENCE.md --------------------------------
+//
+// Every entry in that file carries a measured `input | TypeScript | Go |
+// Rust` table, and a table nothing executes goes stale without any suite
+// going red. The three tests below are the Go column of the three
+// entries no fixture row can hold. Each has a counterpart in
+// ../ts/test/json5.test.ts and ../rs/tests/json5_test.rs.
+
+// A JavaScript string is UTF-16 and may hold an UNPAIRED surrogate; a Go
+// string is UTF-8 and cannot, so one folds to U+FFFD here. The register
+// cannot hold this: its cells are JSON values, and every reader but
+// JavaScript's folds \ud800 to U+FFFD, so the ts and go cells would MEAN
+// the same thing and the row would record no divergence.
+func TestLoneSurrogateFoldsToTheReplacementCharacter(t *testing.T) {
+	j := parser(t)
+	for _, c := range []struct{ src, want string }{
+		{`"\uD800"`, "�"},
+		{`"\uDFFF"`, "�"},
+		{`"a\uD800b"`, "a�b"},
+		{`"\uDE00\uD83D"`, "��"},
+	} {
+		v, err := Parse(j, c.src)
+		if err != nil {
+			t.Fatalf("Parse(%s) error: %v", c.src, err)
+		}
+		if got, ok := v.(string); !ok || got != c.want {
+			t.Errorf("Parse(%s) = %#v, want %q", c.src, v, c.want)
+		}
+	}
+
+	// The control: a well-formed PAIR is one astral character in all
+	// three runtimes, not two folds.
+	v, err := Parse(j, "\"\U0001F600\"")
+	if err != nil {
+		t.Fatalf("Parse of an astral pair: %v", err)
+	}
+	if got, ok := v.(string); !ok || len([]rune(got)) != 1 || []rune(got)[0] != '\U0001F600' {
+		t.Errorf("astral pair = %#v, want one U+1F600", v)
+	}
+}
+
+// Nesting is BOUNDED in the Rust port and unbounded here and in
+// TypeScript. This is the Go column of that table: the depths it records
+// as parsing must keep parsing, or the entry describes a runtime that no
+// longer exists.
+func TestNestingIsUnbounded(t *testing.T) {
+	j := parser(t)
+	for _, depth := range []int{127, 128, 5000} {
+		v, err := Parse(j, strings.Repeat("[", depth)+strings.Repeat("]", depth))
+		if err != nil {
+			t.Fatalf("%d nested arrays: %v", depth, err)
+		}
+		level := 0
+		for {
+			a, ok := v.([]any)
+			if !ok || len(a) == 0 {
+				break
+			}
+			level++
+			v = a[0]
+		}
+		if level != depth-1 {
+			t.Errorf("%d nested arrays: reached level %d", depth, level)
+		}
+
+		if _, err := Parse(j, strings.Repeat("{a:", depth)+"1"+strings.Repeat("}", depth)); err != nil {
+			t.Fatalf("%d nested objects: %v", depth, err)
+		}
+	}
+}
+
+// Both ports site the two no-value errors at the start of the source,
+// where the canonical raises them before the lexer has a point to report
+// and leaves row and col undefined. The CODE agrees, and that is what
+// test/spec/options.tsv pins; this is the POSITION, which no fixture
+// column carries.
+func TestTheNoValueErrorsCarryAPosition(t *testing.T) {
+	j := parser(t)
+	for _, c := range []struct{ src, code string }{
+		{"//", "json5_no_value"},
+		{"", "json5_empty"},
+	} {
+		_, err := Parse(j, c.src)
+		var je *jsonic.JsonicError
+		if !errors.As(err, &je) {
+			t.Fatalf("Parse(%q) error = %v, want *JsonicError", c.src, err)
+		}
+		if je.Code != c.code || je.Row != 1 || je.Col != 1 {
+			t.Errorf("Parse(%q) = %s at %d:%d, want %s at 1:1",
+				c.src, je.Code, je.Row, je.Col, c.code)
 		}
 	}
 }

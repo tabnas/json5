@@ -98,7 +98,30 @@ behaviour:
 Do not let the Go or Rust behaviour drift from TS. A genuine engine
 limitation that cannot be repaired now is RECORDED, not papered over: in
 `test/divergent.tsv` (which has a column per runtime, `rust` included)
-so it is executed, never only described.
+so it is executed, never only described, AND in
+[`DIVERGENCE.md`](DIVERGENCE.md) with a measured
+`input | TypeScript | Go | Rust` table, the reason, and who owns the
+repair. A divergence the register cannot express says so in
+`DIVERGENCE.md` and is pinned by a test in the runtime that diverges.
+Three shapes cannot go in the file today: one invisible to the compared
+value (the cells are JSON, so a lone surrogate reads as agreement), one
+needing non-default options (the three runners build one parser from the
+defaults and the file has no `opts` column), and one only a SINGLE port
+diverges on, because `ts/test/divergent.test.ts` and
+`go/divergent_test.go` each compare their own column against one other
+port's and fail a row whose two columns agree. Never write a divergence
+into prose alone, and never widen a claim of parity past what a test
+measures.
+
+Ask first whether the canonical is the thing that is wrong. Recording a
+difference asserts that it CANNOT be repaired, and an entry whose own
+prose names a fixable defect in `ts/src/json5.ts` is a false claim of
+impossibility other ports copy from. Fix the canonical, pin the
+corrected behaviour in `test/spec/`, and delete the entry. An entry that
+survives that question needs a pin PER COLUMN of its table, not only in
+the runtime that diverges: a table nothing executes goes stale with
+every suite green, which is how the 2026-08 audit found 29 recorded
+claims contradicted by execution.
 
 ### The conformance corpus (`test/json5-tests/`)
 

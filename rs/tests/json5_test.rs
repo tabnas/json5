@@ -206,6 +206,77 @@ fn require_value() {
     assert_eq!(parsed(&jopt, "  // nothing\n/* here */"), "null");
 }
 
+/// Both ports site the two no-value errors at the start of the source,
+/// where the canonical raises them before the lexer has a point to
+/// report and leaves `row` and `col` undefined. The CODE agrees, and
+/// that is what `../test/spec/options.tsv` pins in all three runtimes;
+/// the POSITION is what diverges, and no fixture column carries it.
+/// This is the pin for the RUST column of that entry in
+/// `../DIVERGENCE.md`; `the-no-value-errors-carry-no-position` in
+/// `ts/test/json5.test.ts` and `TestTheNoValueErrorsCarryAPosition` in
+/// `go/json5_test.go` pin the other two.
+#[test]
+fn the_no_value_errors_carry_a_position() {
+    let j = make();
+    for (src, want) in [("//", "json5_no_value"), ("", "json5_empty")] {
+        let error = parse_with(&j, src).expect_err("refused");
+        assert_eq!(
+            (error.code.as_str(), error.row, error.col),
+            (want, 1, 1),
+            "{src:?}"
+        );
+    }
+}
+
+/// A hash-comment-only source under `hashComment`, with `requireValue`
+/// OFF. `has_value` deliberately knows only the two slash comment forms,
+/// in all three runtimes, so a `#` counts as the start of a value and
+/// the requireValue short-circuit does not fire. The source then reaches
+/// the rules, where this engine answers the grammar's declared
+/// `emptyResult` and the canonical TypeScript engine falls out with no
+/// value at all. That difference is recorded in `../DIVERGENCE.md`.
+///
+/// Neither pin the register offers fits: it has no `opts` column, and a
+/// shared fixture compares ONE expected value across three runtimes, so
+/// a row for this input would be a row the runtimes disagree about. This
+/// is the pin for the RUST column. The TypeScript and Go columns of that
+/// table are pinned by `hash-comment-only-with-require-value-off` in
+/// `ts/test/json5.test.ts` and `TestHashCommentOnlyWithRequireValueOff`
+/// in `go/json5_test.go`, so a change to any of the three goes red.
+///
+/// The expectation is `Value::Null` by NAME, not "some empty thing".
+/// `Value::Null` and `Value::Undefined` are different results, and which
+/// one comes back IS the divergence, so an assertion loose enough to
+/// accept either would pin nothing. Verified by flipping it to
+/// `Value::Undefined`, which fails.
+#[test]
+fn a_hash_comment_only_source_answers_the_declared_empty_result() {
+    let j = parser(|o| {
+        o.hash_comment = true;
+        o.require_value = false;
+    });
+    for src in ["# c", "# c\n# d", "   # c   "] {
+        assert_eq!(
+            parse_with(&j, src).unwrap_or_else(|error| panic!("{src:?}: {error}")),
+            tabnas::Value::Null,
+            "{src:?}"
+        );
+    }
+
+    // The slash forms answer the same thing, and they are shared fixture
+    // rows: only the hash form diverges.
+    let slash = parser(|o| o.require_value = false);
+    assert_eq!(
+        parse_with(&slash, "// c").expect("parsed"),
+        tabnas::Value::Null
+    );
+
+    // The control, itself a row of `../test/spec/options.tsv`: with
+    // requireValue ON the same source fails on the comment instead.
+    let strict = parser(|o| o.hash_comment = true);
+    assert_eq!(code(&strict, "# comment"), "unexpected");
+}
+
 #[test]
 fn non_strict_options() {
     let js = parser(|o| {
@@ -408,6 +479,54 @@ fn parse_uses_a_shared_default_and_is_safe_across_threads() {
     }
 }
 
+// --- Line separators inside a string literal ---------------------------
+
+/// U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR may appear
+/// UNESCAPED inside a JSON5 string, where CR and LF may not (JSON5 5.2:
+/// a `JSON5DoubleStringCharacter` is any `SourceCharacter` but a quote,
+/// a backslash or a `LineTerminator`, plus `LineContinuation`, plus
+/// U+2028 and U+2029). TypeScript and Go both accept them.
+///
+/// This engine asks `line.chars` alone for what a string may not hold,
+/// and `line.chars` plus `line.fixed` everywhere a line can end, so the
+/// plugin puts LS and PS in `line.fixed`. Carrying them in `line.chars`
+/// instead, as TypeScript and Go do, made every one of these inputs
+/// `unprintable` here.
+///
+/// The rows belong in `../test/spec/strings.tsv`, where all three
+/// runtimes would execute them; they are pinned here because the pass
+/// that found the defect may not write the shared fixtures.
+#[test]
+fn a_line_separator_is_legal_inside_a_string_but_still_ends_a_line() {
+    let j = make();
+    for (src, want) in [
+        ("\"a\u{2028}b\"", "a\u{2028}b"),
+        ("\"a\u{2029}b\"", "a\u{2029}b"),
+        ("'a\u{2028}b'", "a\u{2028}b"),
+        ("\"\u{2028}\"", "\u{2028}"),
+    ] {
+        match parse_with(&j, src) {
+            Ok(tabnas::Value::String(got)) => assert_eq!(got, want, "{src:?}"),
+            other => panic!("{src:?}: {other:?}"),
+        }
+    }
+    // CR and LF are still forbidden unescaped.
+    for src in ["\"a\nb\"", "\"a\rb\""] {
+        assert_eq!(code(&j, src), "unprintable", "{src:?}");
+    }
+    // LS still ends a line comment and still bumps the row counter,
+    // which is what `line.fixed` and `line.rowChars` are for.
+    assert_eq!(parsed(&j, "//c\u{2028}1"), "1");
+    assert_eq!(parsed(&j, "//c\u{2029}1"), "1");
+    match parse_with(&j, "1\u{2028}2") {
+        Err(error) => assert_eq!(
+            (error.code.as_str(), error.row, error.col),
+            ("unexpected", 2, 1)
+        ),
+        other => panic!("{other:?}"),
+    }
+}
+
 // --- Recorded divergences the shared files cannot hold -----------------
 
 /// A LONE SURROGATE escape survives in canonical TypeScript and folds to
@@ -444,6 +563,51 @@ fn a_lone_surrogate_folds_to_the_replacement_character() {
     match parse_with(&j, r#""𐀀""#) {
         Ok(tabnas::Value::String(got)) => assert_eq!(got, "\u{10000}"),
         other => panic!("{other:?}"),
+    }
+}
+
+// An astral `IdentifierStart` opening an unquoted key, or unquoted
+// text under `strictValue: false`, was a divergence until 2026-09-21:
+// the canonical text check read one UTF-16 code unit and saw a high
+// surrogate. It reads a code point now, so all three runtimes agree and
+// the cases belong in the shared fixtures rather than in a Rust-only
+// test: five astral letters opening a key in `../test/spec/keys.tsv`,
+// the two `strictValue: false` rows in `../test/spec/options.tsv`, and
+// an astral NON-letter control beside each.
+
+// --- The inherited nesting budget --------------------------------------
+
+/// Nesting is BOUNDED here and unbounded in TypeScript and Go. The
+/// budget is jsonic's, inherited by building on `tabnas_jsonic::make()`;
+/// this plugin's own grammar document does not name `parse.budget`, and
+/// installing it must not drop what jsonic set. The boundary is pinned
+/// so that a change is a decision rather than a surprise, and so that
+/// the figure in `../DIVERGENCE.md` stays true. A Rust-only divergence
+/// cannot be a register row: the TypeScript and Go halves each compare
+/// their own column against one other port's and fail a row whose two
+/// columns agree, so this asserts the RUST side alone.
+///
+/// The bound is for the CALLER's stack, not the parse loop: the engine's
+/// `Value` walks its own nesting in `to_json()`, and again in the
+/// derived drop it has no iterative replacement for, both outside this
+/// crate and both one frame per level.
+#[test]
+fn nesting_is_capped_at_the_budget_jsonic_installs() {
+    const LIMIT: usize = 127;
+    let j = make();
+    for (open, close, mid) in [("[", "]", ""), ("{a:", "}", "1")] {
+        let at = |n: usize| format!("{}{mid}{}", open.repeat(n), close.repeat(n));
+        parse_with(&j, &at(LIMIT)).unwrap_or_else(|error| panic!("{LIMIT} levels: {error}"));
+        match parse_with(&j, &at(LIMIT + 1)) {
+            Err(error) => assert_eq!(error.code, "cancel", "{} levels", LIMIT + 1),
+            Ok(value) => panic!("{} levels parsed: {}", LIMIT + 1, json(&value)),
+        }
+    }
+    // Deeper still is refused rather than run, so no caller ever holds a
+    // tree too deep to drop.
+    match parse_with(&j, &"[".repeat(10_000)) {
+        Err(error) => assert_eq!(error.code, "cancel"),
+        Ok(value) => panic!("10000 levels parsed: {}", json(&value)),
     }
 }
 

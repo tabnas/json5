@@ -9,12 +9,13 @@ and this file only covers what is specific to this crate.
 | Path | |
 |---|---|
 | `src/lib.rs` | the whole port: `Json5Options`, the embedded grammar text, the lexer checks, the value transforms, the pair-key validator, `json5`, `plugin`, `make`, `make_with`, `parse_with`, `parse` |
-| `tests/parity_test.rs` | every `../test/spec/*.tsv` fixture through `tabnas_support::Runner`, a fresh parser per row for the `opts` column, plus the tripwire that every fixture has the standard shape |
+| `tests/parity_test.rs` | every `../test/spec/*.tsv` fixture through `tabnas_support::Runner`, a fresh parser per row for the `opts` column, plus two tripwires: every fixture has the standard shape, and the row CENSUS is the one recorded |
 | `tests/suite_test.rs` | the vendored `../test/json5-tests` corpus against `../test/json5-tests-expected.json`, both halves, plus the derived truncation and trailing probes |
 | `tests/divergent_test.rs` | the register `../test/divergent.tsv`, `rust` column |
 | `tests/text_ender_test.rs` | the P1/P2 pin: a quote does not end a text run |
 | `tests/json5_test.rs` | in-language behaviour: the `go/json5_test.go` cases, the API, threads |
-| `tests/perf_test.rs` | reuse of one instance must beat rebuilding per parse |
+| `tests/untrusted_test.rs` | playbook section 7: deep nesting, very long input, unterminated constructs, control characters, wide containers |
+| `tests/perf_test.rs` | reuse of one instance must beat rebuilding per parse, and cost must grow about linearly with input size |
 | `tests/version_test.rs` | Cargo.toml == `VERSION` == ts/package.json |
 | `tests/common/mod.rs` | shared helpers: spec dir, the hand-written value conversion, the `opts` reader, the register outcome |
 | `README.md` | the crate front page, prose-gated; its `rust` fences are doctests of this crate (see below) |
@@ -51,6 +52,24 @@ At install, `grammar_document` parses that text with
 patches it before `GrammarSpec::from_value`:
 
 - the `JSON5_*` placeholders become the real character sets;
+- the JSON5 `LineTerminator` set is SPLIT, where TypeScript and Go write
+  all four characters into `line.chars`. CR and LF go into `line.chars`
+  and LS and PS into `line.fixed`. Both halves end a line everywhere a
+  line can end, because the engine asks `line.chars` plus `line.fixed`
+  for that; the one place that asks `line.chars` ALONE is the string
+  lexer's unprintable test, and JSON5 5.2 admits an unescaped U+2028 or
+  U+2029 inside a string literal where any other line terminator must be
+  escaped. Carrying all four in `line.chars` made a string holding a raw
+  U+2028 `unprintable` here, while TypeScript and Go both returned the
+  string. `char_sets()` in the engine's `options.rs` documents the
+  asymmetry as deliberate, so this is a seam rather than a workaround.
+  All three runtimes execute it, through the rows in
+  `../test/spec/strings.tsv` whose input cells carry the raw characters
+  (the fixture escape codec is `\n \r \t \\` and has no `\uXXXX`, so a
+  cell reading `\u2028` would test the JSON5 escape instead); pinned
+  here as well by
+  `a_line_separator_is_legal_inside_a_string_but_still_ends_a_line` in
+  `tests/json5_test.rs`;
 - the option-dependent overrides (`hex`, `oct`, `bin`, `sep`, hash
   comment, `lex.empty`, `tokenSet.VAL`) are applied from `Json5Options`;
 - `number.exclude` loses its `@/.../` wrapper. The engine reads that
@@ -165,10 +184,29 @@ it would refuse every row as recording no divergence. When it compares
 positions, this file collapses to a `Register::new(runner, "rust",
 &["go", "ts", "rust"])` call.
 
+Every divergence, register row or not, also has a MEASURED table in
+`../DIVERGENCE.md` with the reason and who owns the repair. Only the
+nesting bound is the Rust port's alone: `tabnas_jsonic`'s `DEPTH_LIMIT`,
+inherited rather than added here, and unable to be a row for the reason
+below. The rest are shared with Go.
+
+A divergence asserts that a difference CANNOT be repaired. Where the
+canonical is simply wrong, the repair belongs in `ts/src/json5.ts` and
+the rows belong in a shared fixture, not here. The astral
+`IdentifierStart` entry was removed on 2026-09-21 on exactly that
+ground: its own comment named the canonical defect, so recording it was
+a claim of impossibility about something a one-line change fixed.
+
 ### What the register cannot hold
 
-Two shapes of divergence do not fit this file. Neither is a reason to
+Three shapes of divergence do not fit this file. None is a reason to
 widen the cell format; each is recorded where it can be executed.
+
+Each is pinned PER COLUMN, not only here. A test in this crate alone
+holds the Rust figure still and lets the TypeScript and Go ones drift
+while every suite stays green, which is what the 2026-09-21 audit of
+`../DIVERGENCE.md` was for: the three entries below now name a test in
+`ts/test/json5.test.ts` and one in `go/json5_test.go` as well.
 
 - **A lone surrogate.** `"\uD800"` is that character in TypeScript and
   U+FFFD here, because a Rust `String` is UTF-8. The register's cells
@@ -179,13 +217,46 @@ widen the cell format; each is recorded where it can be executed.
   exactly that row. `tabnas_support::lone_surrogate_at` exists to refuse
   the same cell in a shared `test/spec` fixture. Pinned instead by
   `a_lone_surrogate_folds_to_the_replacement_character` in
-  `tests/json5_test.rs`.
+  `tests/json5_test.rs`, with
+  `lone-surrogate-survives-as-a-code-unit` in `ts/test/json5.test.ts`
+  and `TestLoneSurrogateFoldsToTheReplacementCharacter` in
+  `go/json5_test.go` holding the other two columns.
 - **Anything needing non-default options.** The three register runners
   build one parser from the defaults and the file has no `opts` column.
   A hash-comment-only source under `hashComment` and `requireValue:
   false` is one such case: TypeScript yields no value where both ports
-  yield the declared empty result. Recorded in the comments of
-  `../test/spec/options.tsv`, beside the rows that DO hold.
+  yield the declared empty result. The shared fixtures cannot hold it
+  either, because they compare one expected value across all three.
+  Recorded in the comments of `../test/spec/options.tsv`, beside the
+  rows that DO hold, and pinned by
+  `a_hash_comment_only_source_answers_the_declared_empty_result` in
+  `tests/json5_test.rs`, with
+  `hash-comment-only-with-require-value-off` in `ts/test/json5.test.ts`
+  and `TestHashCommentOnlyWithRequireValueOff` in `go/json5_test.go`
+  holding the other two columns.
+- **Anything only THIS port diverges on.** `ts/test/divergent.test.ts`
+  and `go/divergent_test.go` each compare their own column against ONE
+  other (`ts` against `go`, and back), and the first thing each does is
+  fail a row whose two columns agree. A row where TypeScript and Go
+  agree and only Rust differs therefore fails both of those halves
+  before either parses anything, however true it is. The nesting bound
+  is that shape, and its input would otherwise fit a cell. Measured, not
+  assumed: that check is `same(mine, theirs)` at the top of each loop.
+  Recorded in `../DIVERGENCE.md` and pinned by
+  `nesting_is_capped_at_the_budget_jsonic_installs` in
+  `tests/json5_test.rs`, with `nesting-is-unbounded` in
+  `ts/test/json5.test.ts` and `TestNestingIsUnbounded` in
+  `go/json5_test.go` holding the absence of a bound in the other two.
+  It becomes a row when those two halves read every runtime column,
+  which is the same change that collapses this file's runner into
+  `tabnas_support::Register`.
+
+The untrusted-input suite splits the same way. Only
+`nesting_far_past_the_budget_is_refused_rather_than_run` in
+`tests/untrusted_test.rs` is this port's own; the rest is ordinary JSON5
+behaviour, so the short cases are rows of `../test/spec/options.tsv` and
+the long ones are mirrored case for case and size for size in
+`ts/test/untrusted.test.ts` and `go/untrusted_test.go`.
 
 ## The corpus grader never skips
 

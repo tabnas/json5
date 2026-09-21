@@ -72,3 +72,21 @@ input	expected	opts
 {a:b"c}	ERROR
 {a:1"}	ERROR
 a"b	ERROR
+# JSON5 5.2 admits an UNESCAPED U+2028 LINE SEPARATOR and U+2029
+# PARAGRAPH SEPARATOR inside a string literal: a JSON5StringCharacter is
+# any SourceCharacter but the quote, the backslash and a LineTerminator,
+# plus a LineContinuation, plus those two. Every other line terminator
+# must be escaped.
+#
+# The input cells below carry the two characters RAW, and are meant to
+# look empty of them: this codec decodes \n \r \t \\ and nothing else, so
+# a cell reading \u2028 would feed the parser a JSON5 ESCAPE and test the
+# other path. The expected cells use JSON's own \u, which is visible.
+"a b"	"a\u2028b"
+'a b'	"a\u2028b"
+"a b"	"a\u2029b"
+" "	"\u2028"
+# The contrast: a raw CR or LF inside a string is still unprintable, and
+# those two the codec can spell.
+"a\nb"	ERROR:unprintable
+"a\rb"	ERROR:unprintable
