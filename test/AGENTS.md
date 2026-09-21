@@ -1,8 +1,9 @@
 # Agents Guide — shared spec fixtures
 
-`spec/*.tsv` holds the cross-runtime conformance fixtures. Both runtimes
-auto-discover and run **every** file in this directory, so a change here
-affects TypeScript and Go together — edit with that in mind.
+`spec/*.tsv` holds the cross-runtime conformance fixtures. All three
+runtimes auto-discover and run **every** file in this directory, so a
+change here affects TypeScript, Go and Rust together — edit with that in
+mind.
 
 ## Format
 
@@ -28,10 +29,11 @@ comparison.
 
 ## The divergence register — `test/divergent.tsv`
 
-Separate from `spec/`, and read by `ts/test/divergent.test.ts` and
-`go/divergent_test.go` rather than by the shared runner.
+Separate from `spec/`, and read by `ts/test/divergent.test.ts`,
+`go/divergent_test.go` and `rs/tests/divergent_test.rs` rather than by
+the shared runner.
 
-It records the places the two ports **disagree**, with a column per port,
+It records the places the ports **disagree**, with a column per port,
 and it is **not a fixture**. A fixture fails when behaviour regresses. This
 fails **both ways**: when a port is repaired to agree with the other, the
 row still claims they differ, so the suite goes red and names the row to
@@ -46,7 +48,7 @@ contradicted by execution, and a fixture would have preserved every one.
 | column | meaning |
 |---|---|
 | `input` | JSON5 source, escape-decoded as in `spec/`. |
-| `ts`, `go` | what each port produces: a JSON value, `ERROR:<code>`, or `ERROR:<code>@<row>:<col>` when the position is the disagreement. |
+| `ts`, `go`, `rust` | what each port produces: a JSON value, `ERROR:<code>`, or `ERROR:<code>@<row>:<col>` when the position is the disagreement. |
 | `why` | the audit item, and where the repair lives. |
 
 **Position is opt-in.** A cell with no `@row:col` is satisfied by any
@@ -71,16 +73,23 @@ untouched.
 
 - TypeScript: `ts/test/parity.test.ts` — `makeRunner(...).dir(...)`.
 - Go: `go/parity_test.go` — `support.Runner{...}.Dir(t, dir)`.
+- Rust: `rs/tests/parity_test.rs` — `Runner::new_with_row(...).dir(...)`
+  from the `tabnas-support` crate, parsing through the package-level
+  `parse_with` (the counterpart of Go's `Parse`). It rejects an `opts`
+  key the plugin does not have, so a misspelt option cannot run the
+  stock parser and assert the wrong thing.
 
-Both are a dozen lines holding only what is specific to json5: how to
+All three are a dozen lines holding only what is specific to json5: how to
 build the parser for a row's options. Everything else — finding
 `test/spec`, reading the file, decoding escapes, the `ERROR:` contract,
 the comparison, the `<file>:<line>` in a failure message — comes from
-[`@tabnas/support`](https://github.com/tabnas/support) and its Go half, so
-the two loaders cannot drift from each other either.
+[`@tabnas/support`](https://github.com/tabnas/support) and its Go and
+Rust halves, so the three loaders cannot drift from each other either.
+(The Rust runner reports every failing row of a fixture at once rather
+than one subtest per row; that is the one shape difference.)
 
-Both discover files by directory listing: adding a `.tsv` here runs it in
-both runtimes without touching either runner. An empty fixture, and a spec
+All three discover files by directory listing: adding a `.tsv` here runs it in
+every runtime without touching any runner. An empty fixture, and a spec
 directory with no fixtures in it, both **fail** — a runner that reports
 green having run nothing is indistinguishable from coverage that was never
 there.
@@ -93,5 +102,6 @@ there.
 - TypeScript is canonical. If the two runtimes disagree, the TS behaviour is
   the expected value — unless Go has exposed a genuine TS defect, in which
   case fix TS first and pin the corrected behaviour here.
-- A new fixture must pass in BOTH runtimes: run `go test ./...` (from `go/`)
-  and `npm test` (from `ts/`) before considering it done.
+- A new fixture must pass in ALL runtimes: run `go test ./...` (from `go/`),
+  `cargo test --all-targets` (from `rs/`) and `npm test` (from `ts/`)
+  before considering it done.

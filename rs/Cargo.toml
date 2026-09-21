@@ -1,0 +1,32 @@
+[package]
+name = "tabnas-json5"
+version = "0.5.7"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+description = "The JSON5 grammar plugin for the tabnas parsing engine, over the jsonic base grammar"
+repository = "https://github.com/tabnas/json5"
+
+[lib]
+name = "tabnas_json5"
+path = "src/lib.rs"
+
+[dependencies]
+# The engine and the relaxed-JSON base grammar are consumed as SIBLING
+# CHECKOUTS, the standard tabnas development model: clone
+# https://github.com/tabnas/parser, https://github.com/tabnas/json and
+# https://github.com/tabnas/jsonic next to this repo (jsonic itself takes
+# json by path). None of the crates is published, so there is no registry
+# version to fall back on.
+tabnas = { path = "../../parser/rs" }
+tabnas-jsonic = { path = "../../jsonic/rs" }
+indexmap = "2"
+regex = "1.10"
+serde_json = { version = "1.0", features = ["preserve_order"] }
+
+[dev-dependencies]
+# The shared fixture loader and runner: one loader in three languages, so
+# the rows mean the same thing in every runtime.
+tabnas-support = { path = "../../support/rs", features = ["serde_json"] }
+# The corpus grader reads the generated oracle, `test/json5-tests-expected.json`.
+serde = { version = "1.0", features = ["derive"] }

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-// Embeds json5-grammar.jsonic into src/json5.ts and go/json5.go.
+// Embeds json5-grammar.jsonic into src/json5.ts, go/json5.go and (when the
+// Rust port is checked out) rs/src/lib.rs.
 // Run via: npm run embed
 
 const fs = require('fs')
@@ -54,4 +55,19 @@ embed(
   'const grammarText = ' + goEscape(grammar) + '\n',
 )
 
-console.log('Embedded grammar into src/json5.ts and go/json5.go')
+// Rust: a raw string literal has no escapes, so the grammar goes in
+// verbatim. `r#"..."#` closes at the first `"#`, so a grammar containing
+// that pair cannot be embedded this way; refuse rather than emit a
+// literal that ends early. The grammar file ends in a newline, which the
+// literal keeps, as the Go embed does.
+const rsFile = path.join(__dirname, '..', 'rs', 'src', 'lib.rs')
+if (fs.existsSync(rsFile)) {
+  if (grammar.includes('"#')) {
+    console.error('Error: grammar contains `"#`, incompatible with the r# raw string')
+    process.exit(1)
+  }
+  embed(rsFile, 'const GRAMMAR_TEXT: &str = r#"' + grammar + '"#;')
+  console.log('Embedded grammar into src/json5.ts, go/json5.go and rs/src/lib.rs')
+} else {
+  console.log('Embedded grammar into src/json5.ts and go/json5.go (no rs/ checkout)')
+}
