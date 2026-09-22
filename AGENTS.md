@@ -251,9 +251,14 @@ Numeric overflow (`1e400`) used to be a second, Go-only deviation: the Go
 number matcher treated the overflow as "not a number" and the literal fell
 through to text. That is **fixed** in the engine — every runtime now yields
 `Infinity`, pinned by `test/spec/numbers.tsv`. The fixture needs an engine
-newer than the published `github.com/tabnas/parser/go v0.6.0`, so it passes
-with the workspace on (and in CI, which builds against sibling checkouts)
-and fails under `GOWORK=off` until the engine is republished.
+newer than `github.com/tabnas/parser/go v0.6.0`, which used to mean it
+passed with the workspace on and failed under `GOWORK=off`. That is no
+longer the state of this module: `go/go.mod` resolves
+`github.com/tabnas/parser/go v0.9.0` (indirect, through
+`github.com/tabnas/jsonic/go v0.6.6`), and that engine carries the fix.
+Measured 2026-09-22 from `go/`, with no `replace` in `go.mod`:
+`GOWORK=off go test -count=1 ./...` is green, the `1e400` and `-1e400` rows
+included.
 
 ## The grammar is embedded — never hand-edit the embedded block
 
@@ -382,6 +387,41 @@ Two more JSON5 tightenings live in the grammar file:
   whitespace ignored), which reports `unexpected` instead. "Ends where a
   value could follow" is NOT the rule: `[1,` is `end_of_source` while
   `[1,[` is `unexpected`, and `{` alone is `end_of_source`.
+
+### A token set is an index-wise overlay, not a replacement
+
+`options: tokenSet:` in the grammar file reads as a replacement and is not
+one. The engine merges a token set into its default BY INDEX, the way the
+canonical `deep()` merges any array, so a shorter list rewrites the
+positions it covers and leaves the rest of the default in place. That is
+what TypeScript does, and `tabnas/parser` a9c4e77 (#151) brought the Go
+and Rust engines into line with it.
+
+The two lists here survive that only because of how they are spelled. The
+default is `['#TX' '#NR' '#ST' '#VL']` for both sets, and each list here
+is that default with ONE name taken out and the rest left in order, so the
+overlay rewrites positions 0 to 2 and the position 3 it does not reach
+holds `#VL`, which the shortened list already contains. Read back off a
+built instance on 2026-09-22, canonical first:
+
+```
+TypeScript                    VAL = [#ST #NR #VL #VL]  KEY = [#TX #ST #VL #VL]
+Go, parser/go v0.9.0          VAL = [#ST #NR #VL]      KEY = [#TX #ST #VL]
+Go, parser at main            VAL = [#ST #NR #VL #VL]  KEY = [#TX #ST #VL #VL]
+```
+
+The second row is the engine `go/go.mod` declares today and the third is
+the one CI resolves, and both are the intended SET: `#TX` is gone from
+VAL, `#NR` from KEY, and `{10:1}`, `abc` and `{"a":bare}` are rejected
+under either.
+
+Taking out the LAST default name would not survive, because the position
+the overlay does not reach would keep the very name the list meant to
+drop. The Go engine spells a cleared position as an empty name
+(`{"#ST", "", "", ""}`), but that reading is newer than the engine
+`go/go.mod` declares, so do not reach for it here without measuring under
+both. Measure the set off a built instance; the list alone does not say
+what the parser got.
 
 ### Number shapes the built-in lexer misses are matched by regex value-defs
 
