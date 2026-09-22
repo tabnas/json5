@@ -204,7 +204,7 @@ anything, MEASURE the reason it cannot be repaired.
 
 ### What the register cannot hold
 
-Three shapes of divergence do not fit this file. None is a reason to
+Four shapes of divergence do not fit this file. None is a reason to
 widen the cell format; each is recorded where it can be executed.
 
 A divergence that survives is pinned PER COLUMN, not only here. A test
@@ -257,6 +257,30 @@ than only checking that the call returned.
   It becomes a row when those two halves read every runtime column,
   which is the same change that collapses this file's runner into
   `tabnas_support::Register`.
+
+- **Anything whose answer is the TOOLCHAIN's rather than the port's.**
+  An unquoted key is an ES5.1 `IdentifierName`, whose `IdentifierStart`
+  is a Unicode letter, and the specification names no Unicode VERSION.
+  So each runtime answers from the tables its platform ships: the
+  canonical from the host Node's ICU, Go from its `unicode` package, and
+  this crate from the `regex` crate. Measured over every code point in
+  both positions on 2026-09-22, the three agree on 2,204,801 of
+  2,224,126 probes; of the rest, 9,979 are letters this crate and the
+  canonical accept and Go does not, and 9,346 are letters only the
+  canonical accepts. The other three exclusions above are about what a
+  cell can SPELL. This one is about what a cell MEANS: a register cell
+  states what a PORT does, so a changed cell reports a repair or a
+  regression, and these cells change when a toolchain moves without a
+  line of any port changing. Recorded in `../DIVERGENCE.md` and pinned
+  per column by `unquoted_keys_follow_this_crates_unicode_tables` in
+  `tests/json5_test.rs`, with
+  `unquoted-keys-follow-the-hosts-unicode-tables` in
+  `ts/test/json5.test.ts` and
+  `TestUnquotedKeysFollowThisToolchainsUnicodeTables` in
+  `go/json5_test.go`. All three assert DELEGATION, which survives a
+  toolchain move; only the Rust one also hard-codes the current verdicts,
+  because only this crate's tables come from a dependency this repository
+  locks.
 
 The untrusted-input suite splits the same way. Only
 `nesting_far_past_the_budget_is_refused_rather_than_run` in

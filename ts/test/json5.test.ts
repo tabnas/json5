@@ -333,6 +333,60 @@ No \\\\n's!",
     assert.strictEqual([...pair].length, 1)
   })
 
+  // An unquoted key is an ES5.1 IdentifierName, whose IdentifierStart is
+  // a UnicodeLetter. ES5.1 names no Unicode VERSION, so each runtime
+  // answers from the tables its platform ships, and the three platforms
+  // ship three: this host's ICU, Go's `unicode` package, and the Rust
+  // `regex` crate. See "Unquoted keys follow each platform's Unicode
+  // tables" in DIVERGENCE.md for the measured table.
+  //
+  // This is the TypeScript column, and it asserts what that column
+  // CLAIMS: that the canonical delegates to the host's own tables. The
+  // characters are not hard-coded to a verdict here, deliberately. The
+  // canonical's answer for U+1C89 and U+088F is a property of the Node
+  // that runs it, not of ts/src/json5.ts, so a hard-coded verdict would
+  // fail on a different runner without a line of this repo changing.
+  // The Rust column, whose tables come from a crate this repo locks, is
+  // hard-coded in rs/tests/json5_test.rs instead.
+  test('unquoted-keys-follow-the-hosts-unicode-tables', () => {
+    const j = new Tabnas().use(jsonic).use(Json5)
+
+    const isIdentifierStart = (ch: string) => /^[\p{L}\p{Nl}]$/u.test(ch)
+
+    const parses = (src: string) => {
+      try {
+        j.parse(src)
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    // U+00E9 and U+1F600 are the version-independent controls: a letter
+    // in every Unicode version, and So in every one. U+1C89 became a
+    // letter in 16.0 and U+088F in 17.0, so those two are where the
+    // platforms part company.
+    for (const ch of ['\u00e9', '\u1c89', '\u088f', '\u{1F600}']) {
+      const want = isIdentifierStart(ch)
+      assert.strictEqual(
+        parses('{' + ch + ':1}'),
+        want,
+        'as a key start: ' + ch.codePointAt(0)!.toString(16),
+      )
+      assert.strictEqual(
+        parses('{a' + ch + ':1}'),
+        want,
+        'as a key part: ' + ch.codePointAt(0)!.toString(16),
+      )
+    }
+
+    // The control on the control: the loop above is only meaningful if
+    // the four characters do not all answer the same way. U+00E9 opens a
+    // key and U+1F600 does not, on every host.
+    assert.strictEqual(parses('{\u00e9:1}'), true)
+    assert.strictEqual(parses('{\u{1F600}:1}'), false)
+  })
+
   // Nesting is BOUNDED in the Rust port and unbounded here and in Go.
   // This is the TypeScript column of that table: the depths it records
   // as parsing must keep parsing, or the entry is describing a runtime
