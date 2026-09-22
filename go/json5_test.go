@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode"
 
 	jsonic "github.com/tabnas/jsonic/go"
 )
@@ -398,6 +399,51 @@ func TestLoneSurrogateFoldsToTheReplacementCharacter(t *testing.T) {
 	}
 	if got, ok := v.(string); !ok || len([]rune(got)) != 1 || []rune(got)[0] != '\U0001F600' {
 		t.Errorf("astral pair = %#v, want one U+1F600", v)
+	}
+}
+
+// An unquoted key is an ES5.1 IdentifierName, whose IdentifierStart is a
+// UnicodeLetter. ES5.1 names no Unicode VERSION, so each runtime answers
+// from the tables its platform ships, and the three platforms ship three:
+// the canonical's host ICU, this package's `unicode` tables, and the Rust
+// `regex` crate's. See "Unquoted keys follow each platform's Unicode
+// tables" in DIVERGENCE.md for the measured table.
+//
+// This is the Go column, and it asserts what that column CLAIMS: that
+// this port delegates to the toolchain's own tables. The characters are
+// not hard-coded to a verdict, deliberately. Go's answer for U+1C89 and
+// U+088F is a property of the Go release that builds this package, not of
+// json5.go, so a hard-coded verdict would fail on a newer toolchain
+// without a line of this repo changing.
+func TestUnquotedKeysFollowThisToolchainsUnicodeTables(t *testing.T) {
+	j := parser(t)
+
+	parses := func(src string) bool {
+		_, err := Parse(j, src)
+		return err == nil
+	}
+
+	// U+00E9 and U+1F600 are the version-independent controls: a letter in
+	// every Unicode version, and So in every one. U+1C89 became a letter in
+	// 16.0 and U+088F in 17.0, so those two are where the platforms part
+	// company.
+	for _, r := range []rune{'\u00e9', '\u1c89', '\u088f', '\U0001F600'} {
+		want := unicode.IsLetter(r) || unicode.Is(unicode.Nl, r)
+		if got := parses("{" + string(r) + ":1}"); got != want {
+			t.Errorf("U+%04X as a key start: got %v, want %v", r, got, want)
+		}
+		if got := parses("{a" + string(r) + ":1}"); got != want {
+			t.Errorf("U+%04X as a key part: got %v, want %v", r, got, want)
+		}
+	}
+
+	// The control on the control: the loop above is only meaningful if the
+	// four characters do not all answer the same way.
+	if !parses("{\u00e9:1}") {
+		t.Error("U+00E9 must open a key on every toolchain")
+	}
+	if parses("{\U0001F600:1}") {
+		t.Error("U+1F600 must never open a key")
 	}
 }
 

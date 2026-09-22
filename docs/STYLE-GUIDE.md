@@ -35,14 +35,15 @@ drift from the other:
 
 | Gate | Runs | Checks |
 |---|---|---|
-| `make prose` (Vale) | `ci/workflows/docs.yml` (staged) | spelling, Google's conventions, and the banned list, at the levels set in `.vale.ini` |
+| `make prose` (Vale) | `.github/workflows/docs.yml` | spelling, Google's conventions, and the banned list, at the levels set in `.vale.ini` |
 | `ts/test/docs.test.js` | `make test` | the banned list again, the no-em-dash rule, the first-person rules, the exclamation ration, and no emoji |
 | `ts/scripts/vale-counts.cjs` | `make prose` | that every count in `.vale.ini`, and the total below, are what Vale reports |
 
-The gated set is the reader-facing one: the language-neutral pages under
-`doc/`, the four Diátaxis kinds under `ts/doc/` and `go/doc/`, and the
-three package READMEs. The Rust-port series, the feasibility reports and
-the defect ledgers are working documents, and they are out.
+The gated set is the reader-facing one, and `ts/scripts/gated-docs.cjs`
+is the list: the four Diátaxis kinds under `ts/doc/` and `go/doc/`, the
+repository README, and the READMEs of the three packages, `rs/README.md`
+included. Twelve files. `AGENTS.md`, `DIVERGENCE.md` and this guide are
+working documents, and they are out.
 
 **Four checks live in the local gate rather than in Vale, and the reason
 is capability, not preference.**
@@ -65,7 +66,7 @@ is capability, not preference.**
 
 **A Google rule sitting below error level was tried at error first and
 found wrong for these pages.** `.vale.ini` records what each produced on
-a clean run over the gated set: 366 alerts across 12 files. Those
+a clean run over the gated set: 375 alerts across 12 files. Those
 numbers were written by hand once, and this sentence and the one in
 `.vale.ini` drifted apart from each other and from a run.
 `node ts/scripts/vale-counts.cjs` now reads both against a live Vale run
@@ -73,11 +74,11 @@ and fails on any difference; `--write` re-measures. A rule switched off
 is measured with it switched back on, because the count is the evidence
 for switching it off.
 
-**The Vale gate is staged, not yet wired.** `ci/workflows/docs.yml`
-follows this repository's convention for proposed workflows (see
-`ci/README.md`): review it and move it to `.github/workflows/` to
-activate. `make prose` runs the same check locally today, and
-`ts/test/docs.test.js` runs in `make test` now.
+**The Vale gate is wired.** `.github/workflows/docs.yml` was promoted on
+2026-09-22, out of the staging area this repository uses for proposed
+workflows (see `ci/README.md`), and runs the same check a pull request
+that touches a gated page now has to pass. `make prose` runs it locally,
+and `ts/test/docs.test.js` runs the other half in `make test`.
 
 ## The structure: Diátaxis, enforced by placement
 

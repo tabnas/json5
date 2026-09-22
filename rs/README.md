@@ -145,6 +145,19 @@ TypeScript engine says:
   divergence register because that register compares JSON cells, and
   every reader but JavaScript's folds `\ud800` to U+FFFD, so the row
   would read as no divergence at all.
+- **Unquoted keys reach the letters this crate's Unicode tables know.**
+  An ECMAScript 5.1 `IdentifierStart` is a Unicode letter, and the
+  specification names no Unicode version, so each runtime answers from
+  the tables its platform ships. This crate reads them through the
+  `regex` crate, which is a version behind a recent Node and a version
+  ahead of Go 1.24, so a handful of recently added letters open a key
+  here and not in Go, and a smaller handful open one in the canonical and
+  not here. The measured table is in
+  [`../DIVERGENCE.md`](../DIVERGENCE.md), and
+  `unquoted_keys_follow_this_crates_unicode_tables` in
+  `tests/json5_test.rs` holds this column to it. Nothing in the parse
+  rule differs: the runtimes disagree about which characters are letters,
+  not about what a key may be.
 - **Nesting stops at 127 containers.** A deeper source gets the `cancel`
   code, where the canonical runtime and the Go port accept it. The bound
   comes from the base grammar, and it guards the caller: the parse loop

@@ -49,6 +49,15 @@ Audited 2026-09-21, entry by entry: every table below is executed in all
 three runtimes, either as a register row or by a named test per column.
 No figure in this file rests on a hand measurement alone.
 
+One entry added on 2026-09-22 pins its columns differently, and says so
+in itself: "Unquoted keys follow each platform's Unicode tables" records
+a difference whose figures are a property of the toolchain each runtime
+is built with rather than of its source, so its per-column tests assert
+that each port delegates to its own platform, and only the Rust one,
+whose tables this repository locks, also hard-codes the verdicts. Read
+that entry before comparing its table against a runner other than the
+one it names.
+
 ## Column positions after an astral character (engine, Go and Rust)
 
 The engine's token columns count characters, where the canonical
@@ -157,6 +166,76 @@ test walked the array half and checked the object half for nothing but
 truncated the value would have kept this column green. The Go object
 half walks the `a` chain to its scalar leaf now, and asserts the depth
 and the leaf, which is what the sentence always claimed.
+
+## Unquoted keys follow each platform's Unicode tables
+
+An unquoted key is an ECMAScript 5.1 `IdentifierName`, whose
+`IdentifierStart` is a `UnicodeLetter`: "any character in the Unicode
+categories Lu, Ll, Lt, Lm, Lo, or Nl", and whose `IdentifierPart` adds
+Mn, Mc, Nd and Pc. ES5.1 names no Unicode VERSION, so each runtime
+answers from the tables its platform ships, and the three platforms ship
+three different versions.
+
+| input | TypeScript | Go | Rust |
+|---|---|---|---|
+| `{é:1}` | `{"é":1}` | `{"é":1}` | `{"é":1}` |
+| `{Ᲊ:1}` (U+1C89, a letter since 16.0) | `{"Ᲊ":1}` | `unexpected` | `{"Ᲊ":1}` |
+| `{aᲉ:1}` | `{"aᲉ":1}` | `unexpected` | `{"aᲉ":1}` |
+| `{࢏:1}` (U+088F, a letter since 17.0) | `{"࢏":1}` | `unexpected` | `unexpected` |
+| `{a࢏:1}` | `{"a࢏":1}` | `unexpected` | `unexpected` |
+| `{😀:1}` (So in every version) | `unexpected` | `unexpected` | `unexpected` |
+
+The first and last rows are the controls: a character every version
+calls a letter, and one no version does. Between them the ports do not
+disagree about the RULE, only about which characters the rule reaches.
+
+The versions, read from each platform on 2026-09-22:
+`process.versions.unicode` is 17.0 (Node 22, ICU 78), `unicode.Version`
+is 15.0.0 (Go 1.24), and the `regex` crate resolves to `regex-syntax`
+0.8.11, whose tables are 16.0. Measured over every code point from
+U+0001 to U+10FFFF in both positions, 2,224,126 probes: the three agree
+on 2,204,801. Of the rest, 9,979 are characters TypeScript and Rust
+accept and Go does not, and 9,346 are characters only TypeScript
+accepts. Nothing runs the other way: neither port accepts a key the
+canonical refuses.
+
+Nothing in this repository can repair it. Each port already delegates to
+its platform, which is the only thing it can do, and the canonical's own
+answer is not fixed either: the same `ts/src/json5.ts` gives a different
+set on a host whose ICU is older. The gap narrows when a toolchain moves
+and cannot be closed by code here.
+
+The register cannot hold this one, and the reason is a new one. Its
+other exclusions are about what a cell can SPELL; this is about what a
+cell MEANS. A register cell states what a port does, so that a changed
+cell reports a repair or a regression. These answers change with the
+toolchain the port is built with, without a line of the port changing:
+the Rust column gains U+088F the day `regex` ships Unicode 17, and the
+TypeScript column loses it on an older Node. A row would then report a
+repair or a regression where neither happened, which is the opposite of
+what the register is for.
+
+Pinned instead by one test per column, each holding its own runtime to
+its own tables, with the two version-independent controls beside the two
+version-dependent characters:
+`unquoted_keys_follow_this_crates_unicode_tables` in
+`rs/tests/json5_test.rs`,
+`unquoted-keys-follow-the-hosts-unicode-tables` in
+`ts/test/json5.test.ts`, and
+`TestUnquotedKeysFollowThisToolchainsUnicodeTables` in
+`go/json5_test.go`.
+
+The three are not the same shape, and the difference is the entry's
+point. The TypeScript and Go tests assert DELEGATION: for each of the
+four characters, the parser accepts the key exactly when that runtime's
+own letter test says it is a letter. That is what those columns claim,
+it catches a port that froze a character list instead of asking the
+platform, and it survives a Node or Go upgrade. The Rust test asserts
+delegation the same way and ALSO hard-codes the current verdicts, because
+this crate's tables come from a dependency this repository locks: when
+`regex` ships Unicode 17 the Rust test goes red and names the table above
+as the thing to re-measure. Nothing can do that for the other two, whose
+tables arrive with the runner.
 
 ## The no-value error carries no position in TypeScript
 

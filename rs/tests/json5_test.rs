@@ -693,3 +693,74 @@ fn wide_base_prefixed_literals_round_once_from_the_exact_integer() {
         other => panic!("{other:?}"),
     }
 }
+
+/// An unquoted key is an ECMAScript 5.1 `IdentifierName`, whose
+/// `IdentifierStart` is a `UnicodeLetter`: "any character in the Unicode
+/// categories Lu, Ll, Lt, Lm, Lo, or Nl". ES5.1 names no Unicode
+/// VERSION, so each runtime answers from the tables its platform ships,
+/// and the three platforms ship three different versions. This crate
+/// reads `\p{L}` and `\p{Nl}` through the `regex` crate, whose tables
+/// are Unicode 16.0; Go reads `unicode.IsLetter`, which is 15.0 in Go
+/// 1.24; and the canonical reads a JavaScript regular expression, so it
+/// gets whatever Unicode the host's ICU carries, 17.0 on Node 22.
+///
+/// The consequence is recorded in `../DIVERGENCE.md` under "Unquoted
+/// keys follow each platform's Unicode tables", with the measured table.
+/// This test is that entry's Rust column, and it is a test rather than a
+/// row of `../test/divergent.tsv` because a register cell states what a
+/// PORT does, while these answers change with the toolchain a port is
+/// built with: the same `rs/src/lib.rs` accepts U+088F the day `regex`
+/// ships Unicode 17, and the same `ts/src/json5.ts` stops accepting it
+/// on a Node whose ICU is older. A register row would then report a
+/// repair or a regression where neither happened.
+///
+/// It is expected to go red when this crate's tables move, and that is
+/// the point: re-measure the entry and correct the table rather than
+/// widening this test.
+#[test]
+fn unquoted_keys_follow_this_crates_unicode_tables() {
+    let j = make();
+
+    // DELEGATION, the half the TypeScript and Go columns also assert:
+    // the key opens exactly when this crate's own letter test says the
+    // character is a letter. A port that froze a character list instead
+    // of asking its platform fails here.
+    let letter = regex::Regex::new(r"^[\p{L}\p{Nl}]$").expect("a literal pattern");
+    for ch in ['\u{00E9}', '\u{1C89}', '\u{088F}', '\u{1F600}'] {
+        let want = letter.is_match(ch.encode_utf8(&mut [0; 4]));
+        let start = format!("{{{ch}:1}}");
+        let part = format!("{{a{ch}:1}}");
+        assert_eq!(
+            parse_with(&j, &start).is_ok(),
+            want,
+            "U+{:04X} as a key start",
+            ch as u32
+        );
+        assert_eq!(
+            parse_with(&j, &part).is_ok(),
+            want,
+            "U+{:04X} as a key part",
+            ch as u32
+        );
+    }
+
+    // The controls, which no Unicode version moves. U+00E9 has been a
+    // letter (Ll) since Unicode 1.0, and U+1F600 GRINNING FACE is So in
+    // every version, so these two hold the test to the identifier rule
+    // rather than to a table edition, and they keep the loop above from
+    // passing vacuously on four characters that all answer alike.
+    assert_eq!(parsed(&j, "{\u{00E9}:1}"), "{\"\u{00E9}\":1}");
+    assert!(parse_with(&j, "{\u{1F600}:1}").is_err());
+
+    // U+1C89 CYRILLIC SMALL LETTER TJE became a letter in Unicode 16.0.
+    // This crate's tables have it, so the key opens here and in the
+    // canonical; Go's 15.0 tables do not, and Go rejects it.
+    assert_eq!(parsed(&j, "{\u{1C89}:1}"), "{\"\u{1C89}\":1}");
+    assert_eq!(parsed(&j, "{a\u{1C89}:1}"), "{\"a\u{1C89}\":1}");
+
+    // U+088F ARABIC became a letter in Unicode 17.0. The canonical
+    // accepts it on a host whose ICU carries 17.0; this crate's 16.0
+    // tables do not, so the key is refused here, as it is in Go.
+    assert!(parse_with(&j, "{\u{088F}:1}").is_err());
+    assert!(parse_with(&j, "{a\u{088F}:1}").is_err());
+}
