@@ -34,7 +34,7 @@ TypeScript (canonical), a Go port and a Rust port.
 | [`rs/`](rs/) | Rust port — the `tabnas-json5` crate (library `tabnas_json5`, `pub const VERSION` in `rs/src/lib.rs`). Plugin `json5` / `plugin()`, `Json5Options`, `make` / `make_with`, and `parse_with` / `parse` (the counterpart of Go's `Parse`). Depends on the `tabnas` and `tabnas-jsonic` crates by **path** (sibling checkouts of `parser`, `jsonic` and, through jsonic, `json`), and on `tabnas-support` for the fixtures. Library only. See [`rs/AGENTS.md`](rs/AGENTS.md). |
 | [`json5-grammar.jsonic`](json5-grammar.jsonic) | The grammar, **source of truth for all three runtimes**. Embedded verbatim into each source file. |
 | [`ts/embed-grammar.js`](ts/embed-grammar.js) | Embeds the grammar into `ts/src/json5.ts`, `go/json5.go` AND `rs/src/lib.rs`. |
-| [`ci/`](ci/) | Workflows and scripts **staged** for promotion into `.github/workflows/`: `ci/workflows/rust.yml` (the Rust gate), `ci/workflows/docs.yml` (the prose gate), `ci/rust/run.sh` (what the Rust gate runs). See [`ci/README.md`](ci/README.md). |
+| [`ci/`](ci/) | The staging area for workflow changes (session credentials cannot write `.github/workflows/*`; admin `DECISIONS.md` ADR-8), and [`ci/rust/run.sh`](ci/rust/run.sh), the script the Rust gate runs. The two workflows staged here were promoted on 2026-09-22 and now live as `.github/workflows/rust.yml` and `.github/workflows/docs.yml`; only the script is left. See [`ci/README.md`](ci/README.md). |
 | [`test/json5-tests/`](test/json5-tests/) | Vendored official JSON5 conformance corpus, run by all three suites. |
 | [`test/json5-tests-expected.json`](test/json5-tests-expected.json) | GENERATED expected-VALUE oracle for that corpus, plus the derived leniency probes. All three suites assert against it. Do not hand-edit. |
 | [`scripts/gen-json5-expected.js`](scripts/gen-json5-expected.js) | Builds (and, with `--check`, verifies) that oracle from the corpus. |
@@ -610,11 +610,13 @@ The steps, in order:
    `go/version_test.go` and `rs/tests/version_test.rs`, and the lockfile
    entry by `ci/rust/run.sh`.
 
-   The Rust sites are the ones a release forgets, because nothing in
-   `.github/workflows/` runs the Rust gate: `ci.yml` delegates to the
-   org-shared polyglot workflow, which takes no Rust input, so a stale
-   `rs/` stays green in CI indefinitely. The crate is not published
-   either, so only the constants have to stay in step.
+   The Rust sites used to be the ones a release forgets, because nothing
+   in `.github/workflows/` ran the Rust gate. `rust.yml` was promoted on
+   2026-09-22 and runs `ci/rust/run.sh`, which fails on the lockfile entry
+   before it runs cargo at all, so a forgotten Rust bump goes red remotely
+   now. `ci.yml` still delegates to the org-shared polyglot workflow,
+   which takes no Rust input. The crate is not published either, so only
+   the constants have to stay in step.
 2. Verify against the **published** dependencies rather than your checkout.
    The release runner installs fresh from the registry; a working tree
    usually does not, so reproduce that before believing anything:
@@ -960,8 +962,9 @@ here.
 ## CI
 
 `build.yml` is gone. The workflows this repo has are `ci.yml`,
-`clib.yml`, `clib-release.yml`, `release.yml`, `notify-status.yml` and
-`scorecard.yml`; read them rather than a description of them here.
+`clib.yml`, `clib-release.yml`, `release.yml`, `notify-status.yml`,
+`scorecard.yml`, and `docs.yml` and `rust.yml` since the 2026-09-22
+rollout; read them rather than a description of them here.
 
 `ci.yml` is a **caller**. It delegates to the org-shared
 `tabnas/.github/.github/workflows/polyglot-ci.yml@main` and passes the one
@@ -982,12 +985,18 @@ runner: `test/spec/*.tsv` and the vendored corpus are corrupted by CRLF,
 so a Windows checkout needs `git config --global core.autocrlf false`
 before the suites mean anything.
 
-**Nothing tests `rs/` remotely.** The shared polyglot workflow takes no
-Rust input, and the Rust gate is still staged at
-[`ci/workflows/rust.yml`](ci/workflows/rust.yml) awaiting promotion (see
-[`ci/README.md`](ci/README.md)). Until it is promoted, `ci/rust/run.sh`
-run locally is the only thing that proves the Rust port, and a red or
-stale `rs/` cannot turn CI red.
+**`rs/` is tested remotely, but not by `ci.yml`.** The shared polyglot
+workflow takes no Rust input. What covers the port is the standalone
+`.github/workflows/rust.yml`, promoted on 2026-09-22, which runs
+`ci/rust/run.sh` on the MSRV `rs/Cargo.toml` pins and clones `parser`,
+`json`, `jsonic` and `support` beside the checkout because the crate takes
+them as path dependencies. `.github/workflows/docs.yml`, the Vale half of
+the prose gate, was promoted in the same rollout. `rust.yml` still opens
+with a header calling itself PROPOSED and telling the reader to move it
+into `.github/workflows/`, which is where it already is: the rollout
+moved the file and did not rewrite its comments. Running
+`ci/rust/run.sh` locally is what proves a change before it is pushed, and
+it is the same script the workflow runs.
 
 ## Agent tooling
 
