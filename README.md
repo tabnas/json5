@@ -23,7 +23,7 @@ valid fixtures parse **to the expected value**, checked against the ES5
 engine that json5-tests' own README names as the oracle, and the 31
 invalid ones are rejected. A supplementary derived probe (every
 truncated prefix and every trailing-garbage variant of the corpus that
-ES5 itself rejects) confirms neither port auto-closes an unterminated
+ES5 itself rejects) confirms no port auto-closes an unterminated
 document nor silently ignores text after a complete value.
 
 One documented deviation remains: a literal control character inside a

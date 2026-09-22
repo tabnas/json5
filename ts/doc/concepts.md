@@ -155,19 +155,26 @@ gated by the `infinity` option.
 
 ## Compliance
 
-Both ports run the full official
+All three ports run the full official
 [`json5/json5-tests`](https://github.com/json5/json5-tests) corpus,
 vendored under `test/json5-tests`. Fixture extensions encode the
 expectation: `.json`/`.json5` must parse, `.js` (valid ES5 but not
-JSON5) and `.txt` (invalid everywhere) must error. Both suites also
-compare the parsed VALUE of each `.json` fixture against the host
-language's own JSON parser, so a fixture cannot pass by parsing to the
-wrong thing. The TS and Go suites agree on every fixture. For where Go
-differs from this canonical behaviour, see
+JSON5) and `.txt` (invalid everywhere) must error. All three suites also
+compare the parsed VALUE of every valid fixture, `.json5` included,
+against a generated oracle (`test/json5-tests-expected.json`), so a
+fixture cannot pass by parsing to the wrong thing. The oracle applies the
+one json5-tests names in its own README: `JSON.parse` for `.json` and an
+ES5 evaluation for `.json5`. That distinction matters, because 57 of the
+83 valid fixtures are `.json5`, which a host JSON parser cannot read at
+all. The three suites agree on every fixture. For where Go differs from
+this canonical behaviour, see
 [../../go/doc/concepts.md](../../go/doc/concepts.md#differences-from-the-ts-version).
 
 One known deviation from the JSON5 grammar remains: a literal control
 character inside a string (a raw tab, for example) is a
-`JSON5SourceCharacter` and should be accepted, but the engine's string
-lexer rejects any character below `U+0020` outright. Escaped forms
+`JSON5SourceCharacter` and should be accepted, and every port rejects it.
+The engine can accept it: `options.string.allowControl` admits raw
+control characters as ordinary string body. This grammar does not set it,
+so the rejection stands until that is changed deliberately, with the
+corpus and the shared fixtures re-measured in each port. Escaped forms
 (`"\t"`) are unaffected.
