@@ -75,7 +75,7 @@ is measured with it switched back on, because the count is the evidence
 for switching it off.
 
 **The Vale gate is wired.** `.github/workflows/docs.yml` was promoted on
-2026-09-22, out of the staging area this repository uses for proposed
+2026-09-22, out of the staging area `ci/` then served as for proposed
 workflows (see `ci/README.md`), and runs the same check a pull request
 that touches a gated page now has to pass. `make prose` runs it locally,
 and `ts/test/docs.test.js` runs the other half in `make test`.
