@@ -19,10 +19,10 @@ admin keeps a copy of the workflow:
   older text back over yours.
 - `clib.yml` and `clib-release.yml` are stamped from admin
   `tasks/clib-template/` and carry a `tabnas-clib-template` marker.
-  Change the template, then restamp with admin `tasks/adopt-clib.sh`
-  and move the `ci/clib*.yml` it writes over the copies in
-  `.github/workflows/`, leaving no `ci/*.yml` behind. Never edit the
-  copies here.
+  Change the template, then restamp with admin `tasks/adopt-clib.sh`,
+  which writes both workflows straight into `.github/workflows/`. The
+  new stamp lands in this repository's own reviewed pull request. Never
+  edit the copies here.
 
 ## Promoted, 2026-09-22
 
