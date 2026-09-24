@@ -89,7 +89,7 @@ TypeScript (canonical), a Go port and a Rust port.
 | [`rs/`](rs/) | Rust port — the `tabnas-json5` crate (library `tabnas_json5`, `pub const VERSION` in `rs/src/lib.rs`). Plugin `json5` / `plugin()`, `Json5Options`, `make` / `make_with`, and `parse_with` / `parse` (the counterpart of Go's `Parse`). Depends on the `tabnas` and `tabnas-jsonic` crates by **path** (sibling checkouts of `parser`, `jsonic` and, through jsonic, `json`), and on `tabnas-support` for the fixtures. Library only. See [`rs/AGENTS.md`](rs/AGENTS.md). |
 | [`json5-grammar.jsonic`](json5-grammar.jsonic) | The grammar, **source of truth for all three runtimes**. Embedded verbatim into each source file. |
 | [`ts/embed-grammar.js`](ts/embed-grammar.js) | Embeds the grammar into `ts/src/json5.ts`, `go/json5.go` AND `rs/src/lib.rs`. |
-| [`ci/`](ci/) | The staging area for workflow changes (session credentials cannot write `.github/workflows/*`; admin `DECISIONS.md` ADR-8), and [`ci/rust/run.sh`](ci/rust/run.sh), the script the Rust gate runs. The two workflows staged here were promoted on 2026-09-22 and now live as `.github/workflows/rust.yml` and `.github/workflows/docs.yml`; only the script is left. See [`ci/README.md`](ci/README.md). |
+| [`ci/`](ci/) | [`ci/rust/run.sh`](ci/rust/run.sh), the script the Rust gate runs. The two workflows once staged here were promoted on 2026-09-22 and now live as `.github/workflows/rust.yml` and `.github/workflows/docs.yml`; only the script is left. To change CI, edit `.github/workflows/` in a reviewed pull request and mirror the edit in the workflow's admin template where it has one (admin `DECISIONS.md` ADR-8, as amended 2026-09-24). See [`ci/README.md`](ci/README.md). |
 | [`test/json5-tests/`](test/json5-tests/) | Vendored official JSON5 conformance corpus, run by all three suites. |
 | [`test/json5-tests-expected.json`](test/json5-tests-expected.json) | GENERATED expected-VALUE oracle for that corpus, plus the derived leniency probes. All three suites assert against it. Do not hand-edit. |
 | [`scripts/gen-json5-expected.js`](scripts/gen-json5-expected.js) | Builds (and, with `--check`, verifies) that oracle from the corpus. |
@@ -734,7 +734,8 @@ The steps, in order:
    workflow **has no test step** — it reads `main`, builds against
    already-published dependencies, publishes and tags. The bump commit's
    own CI is the only gate there is, and after the merge that is
-   `ci.yml` alone.
+   `ci.yml` and `rust.yml`: the bump touches `rs/`, so the Rust gate runs
+   on it too.
 
    An npm version is immutable, and a Go module tag is worse: proxy.golang.org caches module versions permanently,
    so a `go/vX.Y.Z` naming the wrong commit cannot be moved, only
@@ -1023,9 +1024,20 @@ here.
 ## CI
 
 `build.yml` is gone. The workflows this repo has are `ci.yml`,
-`clib.yml`, `clib-release.yml`, `release.yml`, `notify-status.yml`,
-`scorecard.yml`, and `docs.yml` and `rust.yml` since the 2026-09-22
-rollout; read them rather than a description of them here.
+`clib.yml`, `clib-release.yml`, `crates-release.yml`, `release.yml`,
+`notify-status.yml`, `scorecard.yml`, and `docs.yml` and `rust.yml`
+since the 2026-09-22 rollout; read them rather than a description of
+them here. To change one, edit it in a reviewed pull request: session
+credentials push `.github/workflows/*` (admin `DECISIONS.md` ADR-8, as
+amended 2026-09-24). They still cannot push tags, so a maintainer pushes
+any tag that a tag-triggered workflow needs. Mirror the change in admin
+where admin keeps a copy: if admin's `rollout/workflows/` holds a
+`json5__<file>` template for it, make the same edit there, or admin
+`scripts/verify.sh` reports drift and a maintainer's
+`rollout/apply-workflows.sh --apply` pushes the older text back.
+`clib.yml` and `clib-release.yml` are stamped from admin
+`tasks/clib-template/`: change the template and restamp, never the
+copies. [`ci/README.md`](ci/README.md) has the steps.
 
 `ci.yml` is a **caller**. It delegates to the org-shared
 `tabnas/.github/.github/workflows/polyglot-ci.yml@main` and passes the one
@@ -1052,10 +1064,7 @@ workflow takes no Rust input. What covers the port is the standalone
 `ci/rust/run.sh` on the MSRV `rs/Cargo.toml` pins and clones `parser`,
 `json`, `jsonic` and `support` beside the checkout because the crate takes
 them as path dependencies. `.github/workflows/docs.yml`, the Vale half of
-the prose gate, was promoted in the same rollout. `rust.yml` still opens
-with a header calling itself PROPOSED and telling the reader to move it
-into `.github/workflows/`, which is where it already is: the rollout
-moved the file and did not rewrite its comments. Running
+the prose gate, was promoted in the same rollout. Running
 `ci/rust/run.sh` locally is what proves a change before it is pushed, and
 it is the same script the workflow runs.
 
