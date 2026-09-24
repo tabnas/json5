@@ -12,7 +12,7 @@ pushes any tag that a tag-triggered workflow needs.
 The amendment also asks for the same change in `tabnas/admin` wherever
 admin keeps a copy of the workflow:
 
-- If admin's `rollout/workflows/` holds a `json5__<file>.yml` template
+- If admin's `rollout/workflows/` holds a `json5__<file>` template
   for the workflow you changed, make the same edit there. Admin
   `scripts/verify.sh` compares each template with its deployed copy, and
   a maintainer's `rollout/apply-workflows.sh --apply` would push the
