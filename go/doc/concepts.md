@@ -176,7 +176,7 @@ fixture cannot pass by parsing to the wrong thing. The oracle applies the
 one json5-tests names in its own README: `JSON.parse` for `.json` and an
 ES5 evaluation for `.json5`. That distinction matters, because 57 of the
 83 valid fixtures are `.json5`, which `encoding/json` cannot read at all.
-The Go suite (`suite_test.go`), the TS suite and the Rust suite agree on
+The Go suite (`suite_test.go`), the TS suite, and the Rust suite agree on
 every fixture.
 
 One known deviation from the JSON5 grammar remains in EVERY port: a

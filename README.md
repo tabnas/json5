@@ -18,7 +18,7 @@ Docs, guides, the error reference and the playground: **[tabnas.dev](https://tab
 
 All three ports share one grammar file and pass the full official
 [`json5/json5-tests`](https://github.com/json5/json5-tests) corpus (all
-114 fixtures) in TypeScript, in Go and in Rust. Passing means both halves: the 83
+114 fixtures) in TypeScript, in Go, and in Rust. Passing means both halves: the 83
 valid fixtures parse **to the expected value**, checked against the ES5
 engine that json5-tests' own README names as the oracle, and the 31
 invalid ones are rejected. A supplementary derived probe (every
