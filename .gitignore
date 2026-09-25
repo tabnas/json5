@@ -42,3 +42,5 @@ yarn.lock
 
 # The Rust crate's build output (rs/target).
 target/
+
+.DS_Store
