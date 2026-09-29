@@ -124,7 +124,7 @@ publish tagged releases):
   writes one, and CI does the same). `json5.go` imports `jsonic`, not
   `parser`, directly, because the Go jsonic package re-exports the engine
   types (`jsonic.Jsonic`, `jsonic.AltSpec`, `jsonic.Tin`, …).
-- Rust: `rs/Cargo.toml` takes `tabnas = { path = "../../parser/rs" }` and
+- Rust: `rs/Cargo.toml` takes `tabnas = { package = "tabnas-parser", path = "../../parser/rs" }` and
   `tabnas-jsonic = { path = "../../jsonic/rs" }` (jsonic takes
   `tabnas-json = { path = "../../json/rs" }` in turn), plus
   `tabnas-support = { path = "../../support/rs" }` as a dev-dependency.
