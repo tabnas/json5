@@ -16,6 +16,7 @@ Blank lines are skipped, and so are comment lines — a line starting with
 |---|---|
 | `input` | JSON5 source. Escapes `\n` `\r` `\t` `\\` are decoded. |
 | `expected` | A JSON value (the parse result), or `ERROR` / `ERROR:<code>` for inputs that must fail. The code is compared **exactly** — it is the error's code, not a substring of its message. |
+| | `ERROR:<code>@<row>:<col>` also pins WHERE the error is reported, 1-based. Every runner reads its own runtime's position: TypeScript's `lineNumber` and `columnNumber` (the `errorPos` hook in `ts/test/parity.test.ts`), Go's `Row` and `Col`, Rust's `row` and `col`. Columns count UTF-16 units in TypeScript and characters in Go and Rust, so a position cell after an astral character cannot be shared (see `DIVERGENCE.md`). |
 | | JSON5 admits values JSON cannot spell, so `expected` also accepts the bare tokens `NaN`, `Infinity`, `-Infinity` and `UNDEFINED` (no value at all). |
 | `opts` | Optional JSON object of plugin options (empty means defaults). |
 

@@ -33,8 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 Or build an instance and reuse it, parsing through `parse_with`, the
-entry point that applies the `requireValue` rule and strips string line
-continuations:
+entry point that applies the `requireValue` rule:
 
 ```rust
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -117,14 +116,13 @@ API and a few points where the engine has no way to say what the
 TypeScript engine says:
 
 - **The entry point is `parse_with`, as in Go.** TypeScript wraps the
-  `start` method on the parser to apply the `requireValue` rule and to
-  strip string line continuations before lexing. The Rust engine runs a
-  `parser.start` hook instead of the parse rather than before it, and a
-  lexer hook cannot rewrite the source it is lexing, so both live in the
-  package-level `parse_with` (and `parse`), the counterpart of the Go
-  `Parse(j, src)`. A direct `Tabnas::parse` on the instance still parses
-  JSON5, but reports an empty source with the engine's generic code and
-  does not fold a `\` before CRLF inside a string.
+  `start` method on the parser to apply the `requireValue` rule. The
+  Rust engine runs a `parser.start` hook instead of the parse rather
+  than before it, so the rule lives in the package-level `parse_with`
+  (and `parse`), the counterpart of the Go `Parse(j, src)`. A direct
+  `Tabnas::parse` on the instance parses the same JSON5, string line
+  continuations included, but reports an empty source with the engine's
+  generic code.
 - **Options are a struct.** `Json5Options` holds the nine booleans with
   Rust names; `to_value` and `from_value` map them to the TypeScript
   keys the plugin bag uses.

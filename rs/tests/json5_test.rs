@@ -408,6 +408,72 @@ fn a_string_line_continuation_is_stripped_inside_strings_only() {
     assert_eq!(parsed(&j, "// c\\\n1"), "1");
 }
 
+/// Where `src` fails, as (code, row, col, pos), through both entry points:
+/// `parse_with` and the instance's own `Tabnas::parse`, which must agree,
+/// since the continuation is read by the lexer.
+fn error_at(parser: &Tabnas, src: &str) -> (String, usize, usize, usize) {
+    let at = |result: Result<tabnas::Value, tabnas::TabnasError>| match result {
+        Ok(value) => panic!("{src:?} parsed to {}", json(&value)),
+        Err(error) => (error.code, error.row, error.col, error.pos),
+    };
+    let wrapped = at(parse_with(parser, src));
+    assert_eq!(
+        at(parser.parse(src)),
+        wrapped,
+        "{src:?}: parse_with and Tabnas::parse disagree"
+    );
+    wrapped
+}
+
+/// A string line continuation is read where it stands, so a string spans
+/// the lines it is written on and every later token keeps the row, column
+/// and offset the source gives it (tabnas/json5#80). Removing the
+/// continuation from the source before lexing kept the value and put the
+/// `@` below on row 2 in both of the first two cases, and the instance's
+/// own parse refused a CRLF continuation outright. These are the issue's
+/// table: row 3 after an LF and after a CRLF continuation, and row 2 in
+/// the control, which has none. Mirrors
+/// `a-line-continuation-keeps-every-later-position` in
+/// `ts/test/json5.test.ts`.
+#[test]
+fn a_line_continuation_keeps_every_later_position() {
+    let j = make();
+    let unexpected = |row, col, pos| ("unexpected".to_string(), row, col, pos);
+    assert_eq!(error_at(&j, "['a\\\nb',\n  @]"), unexpected(3, 3, 11));
+    assert_eq!(error_at(&j, "['a\\\r\nb',\r\n  @]"), unexpected(3, 3, 13));
+    assert_eq!(error_at(&j, "['ab',\n  @]"), unexpected(2, 3, 9));
+}
+
+/// A CRLF continuation reads exactly as an LF one: the same value, and the
+/// same row and column for what follows it on the line after.
+#[test]
+fn a_crlf_continuation_reads_as_an_lf_one() {
+    let j = make();
+    for eol in ["\n", "\r\n"] {
+        let src = format!("'a\\{eol}b'");
+        assert_eq!(parsed(&j, &src), r#""ab""#, "{src:?}");
+        let value = j
+            .parse(&src)
+            .unwrap_or_else(|error| panic!("Tabnas::parse({src:?}): {error}"));
+        assert_eq!(json(&value), r#""ab""#, "{src:?}");
+        let (code, row, col, _) = error_at(&j, &format!("['a\\{eol}b', @]"));
+        assert_eq!((code.as_str(), row, col), ("unexpected", 2, 5), "{eol:?}");
+    }
+}
+
+/// Only an odd run of backslashes escapes the line break. Two before a
+/// CRLF are an escaped backslash and then a real line break, which a
+/// string may not hold; three are an escaped backslash and a continuation.
+#[test]
+fn only_an_odd_run_of_backslashes_continues_a_line() {
+    let j = make();
+    let (code, row, col, _) = error_at(&j, "['a\\\\\r\nb']");
+    assert_eq!((code.as_str(), row, col), ("unprintable", 1, 6));
+    assert_eq!(parsed(&j, "['a\\\\\\\r\nb']"), r#"["a\\b"]"#);
+    let (code, row, col, _) = error_at(&j, "['a\\\\\\\r\nb', @]");
+    assert_eq!((code.as_str(), row, col), ("unexpected", 2, 5));
+}
+
 // --- The shared default parser ----------------------------------------
 
 #[test]

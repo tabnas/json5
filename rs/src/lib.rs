@@ -37,8 +37,8 @@ use indexmap::IndexMap;
 use regex::Regex;
 use serde_json::{json, Value as JsonValue};
 use tabnas::{
-    ActionError, AltSpec, Context, LexCheckResult, Plugin, PluginError, Rule, RuleSnapshot, Tabnas,
-    Tin, Token, Value, ValueDef, TIN_NR, TIN_TX, TIN_ZZ,
+    ActionError, AltSpec, Context, LexCheckResult, Lexer, Plugin, PluginError, Rule, RuleSnapshot,
+    Tabnas, Tin, Token, Value, ValueDef, TIN_NR, TIN_ST, TIN_TX, TIN_ZZ,
 };
 
 /// This crate's version. It MUST equal `ts/package.json` "version": the
@@ -64,8 +64,8 @@ pub use tabnas::TabnasError as Json5Error;
 const PLUGIN_NAME: &str = "json5";
 
 /// The decoration under which the resolved options are recorded on the
-/// instance, so [`parse_with`] can apply the `requireValue` rule and the
-/// line-continuation rewrite. The Go port's `json5$requireValue`.
+/// instance, so [`parse_with`] can apply the `requireValue` rule. The Go
+/// port's `json5$requireValue`.
 const OPTIONS_MARK: &str = "json5$options";
 
 // ---------------------------------------------------------------------------
@@ -289,7 +289,10 @@ const GRAMMAR_TEXT: &str = r#"# JSON5 Grammar Definition
 
   # LexCheck hooks close the last gaps the built-in lexer has against
   # the JSON5 spec:
-  #   fixed.check  preprocesses backslash+CRLF inside strings.
+  #   fixed.check  reads a string literal that holds a line continuation
+  #                (a backslash and a LineTerminatorSequence), which the
+  #                escape map cannot express, where it stands, so every
+  #                row, column and offset after it is the source's own.
   #   text.check   rejects unquoted text that cannot start a valid
   #                JSON5 IdentifierName AND is not a registered value
   #                keyword or regex-matched number.
@@ -321,8 +324,12 @@ const GRAMMAR_TEXT: &str = r#"# JSON5 Grammar Definition
     }
   }
 
-  # JSON5 strings: single or double quote, with ES5.1 escapes plus line
-  # continuations (backslash + line terminator produces an empty string).
+  # JSON5 strings: single or double quote, with ES5.1 escapes. A line
+  # continuation (backslash + LineTerminatorSequence, which produces the
+  # empty string) has no entry here: an entry is keyed by one character,
+  # which cannot spell CRLF, and the TypeScript and Go lexers take an
+  # empty replacement as no entry at all. A string holding one is read by
+  # fixed.check instead.
   options: string: {
     lex: true
     check: '@string-check'
@@ -342,11 +349,6 @@ const GRAMMAR_TEXT: &str = r#"# JSON5 Grammar Definition
       '`': '`'
       '\\': '\\'
       '/': '/'
-      # JSON5 line continuation: backslash + LineTerminatorSequence.
-      '\n': ''
-      '\r': ''
-      '\u2028': ''
-      '\u2029': ''
     }
     allowUnknown: true
   }
@@ -491,107 +493,364 @@ fn decode_identifier_name(source: &str) -> Option<String> {
 // String line continuations.
 // ---------------------------------------------------------------------------
 
-/// Remove JSON5 string line continuations: a backslash immediately
-/// followed by a `LineTerminatorSequence` (CRLF, CR, LF, LS, PS) produces
-/// nothing, letting a string span lines. CRLF is handled first so the
-/// two-character sequence is consumed before a lone CR / LF.
-///
-/// A `LineContinuation` is only part of the STRING grammar, so the scan
-/// tracks lexical context and rewrites inside string literals only. A
-/// blanket replace would also splice out a backslash-newline sitting in a
-/// comment (extending the comment over the following line, swallowing
-/// real tokens) or between tokens (silently accepting `[1,\<LF>2]`).
-/// Mirrors the TypeScript and Go `stripLineContinuations`.
-fn strip_line_continuations(src: &str, quotes: &str, esc: char, hash_comment: bool) -> String {
-    if !src.contains(esc) {
-        return src.to_string();
-    }
-    let bytes = src.as_bytes();
-    let mut out = String::with_capacity(src.len());
-    let mut i = 0;
+/// What a string literal holds, as [`scan_string_escapes`] reports it. A
+/// string with neither is the engine's.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct StringEscapes {
+    /// An escape ES5.1 refuses (`\1`..`\9`, `\0` before a digit, `\u{`), so
+    /// the string is refused at its quote.
+    forbidden: bool,
+    /// A `LineContinuation`, so the fixed check reads the string.
+    continued: bool,
+}
+
+/// What the string literal opening at the start of `remaining` holds,
+/// walked the way the string check has always walked it: an escape takes
+/// the character after it along, and the walk ends at the closing quote
+/// or the end of the source. Mirrors `scanString` in `ts/src/json5.ts`.
+fn scan_string_escapes(remaining: &str, quote: char) -> StringEscapes {
+    let bytes = remaining.as_bytes();
+    let mut found = StringEscapes::default();
+    let mut i = quote.len_utf8();
     while i < bytes.len() {
-        let c = src[i..].chars().next().expect("inside the source");
+        let c = remaining[i..].chars().next().expect("inside the source");
         let size = c.len_utf8();
-
-        // Comments are copied through verbatim.
-        if c == '/' && src[i + size..].starts_with('/') {
-            let mut j = i + size + 1;
-            while j < bytes.len() {
-                let r = src[j..].chars().next().expect("inside the source");
-                if is_line_terminator(r) {
-                    break;
-                }
-                j += r.len_utf8();
-            }
-            out.push_str(&src[i..j]);
-            i = j;
-            continue;
+        if c == quote {
+            break;
         }
-        if hash_comment && c == '#' {
-            let mut j = i + size;
-            while j < bytes.len() {
-                let r = src[j..].chars().next().expect("inside the source");
-                if is_line_terminator(r) {
-                    break;
-                }
-                j += r.len_utf8();
-            }
-            out.push_str(&src[i..j]);
-            i = j;
-            continue;
-        }
-        if c == '/' && src[i + size..].starts_with('*') {
-            let j = src[i + size + 1..]
-                .find("*/")
-                .map_or(bytes.len(), |end| i + size + 1 + end + 2);
-            out.push_str(&src[i..j]);
-            i = j;
-            continue;
-        }
-
-        // Inside a string literal: drop escape+LineTerminatorSequence, copy
-        // any other escape pair whole so an escaped quote does not end the
-        // scan.
-        if quotes.contains(c) {
-            let quote = c;
-            out.push(c);
+        if c != '\\' {
             i += size;
-            while i < bytes.len() {
-                let d = src[i..].chars().next().expect("inside the source");
-                let dsize = d.len_utf8();
-                if d == esc {
-                    if i + dsize >= bytes.len() {
-                        out.push(d);
-                        i += dsize;
-                        break;
-                    }
-                    let n = src[i + dsize..].chars().next().expect("inside the source");
-                    let nsize = n.len_utf8();
-                    if n == '\r' && src[i + dsize + nsize..].starts_with('\n') {
-                        i += dsize + nsize + 1;
-                        continue;
-                    }
-                    if is_line_terminator(n) {
-                        i += dsize + nsize;
-                        continue;
-                    }
-                    out.push_str(&src[i..i + dsize + nsize]);
-                    i += dsize + nsize;
-                    continue;
+            continue;
+        }
+        if i + size >= bytes.len() {
+            break;
+        }
+        let next = bytes[i + size];
+        let after = bytes.get(i + size + 1).copied().unwrap_or(0);
+        // Skip the escape lead and the character it escapes.
+        let escaped = remaining[i + size..].chars().next().expect("checked above");
+        if next.is_ascii_digit() && (next != b'0' || after.is_ascii_digit())
+            || (next == b'u' && after == b'{')
+        {
+            found.forbidden = true;
+        } else if is_line_terminator(escaped) {
+            found.continued = true;
+        }
+        i += size + escaped.len_utf8();
+    }
+    found
+}
+
+/// The string options the continuation reader reads, taken from the
+/// grammar document at install. A lexer check has no access to the live
+/// options, so the reader carries its own copy, as the text check carries
+/// its keyword list.
+#[derive(Debug, Clone)]
+struct StringSyntax {
+    quotes: String,
+    multi_line: String,
+    escape: Vec<(char, String)>,
+    allow_unknown: bool,
+    escape_strict: bool,
+    allow_control: bool,
+}
+
+impl StringSyntax {
+    fn from_document(document: &JsonValue) -> Self {
+        let string = &document["options"]["string"];
+        let text = |key: &str| string[key].as_str().unwrap_or_default().to_string();
+        let flag = |key: &str| string[key].as_bool().unwrap_or(false);
+        let escape = string["escape"]
+            .as_object()
+            .map(|map| {
+                map.iter()
+                    .filter_map(|(key, replacement)| {
+                        let mut chars = key.chars();
+                        match (chars.next(), chars.next(), replacement.as_str()) {
+                            (Some(ch), None, Some(text)) => Some((ch, text.to_string())),
+                            _ => None,
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        StringSyntax {
+            quotes: text("chars"),
+            multi_line: text("multiChars"),
+            escape,
+            allow_unknown: flag("allowUnknown"),
+            escape_strict: flag("escapeStrict"),
+            allow_control: flag("allowControl"),
+        }
+    }
+
+    fn escape(&self, ch: char) -> Option<&str> {
+        self.escape
+            .iter()
+            .find(|(key, _)| *key == ch)
+            .map(|(_, replacement)| replacement.as_str())
+    }
+}
+
+/// What [`decode_continued_string`] read, counted from the opening quote.
+enum ContinuedString {
+    /// The string's value, and how far it runs: in characters and in
+    /// bytes, through the closing quote.
+    Read {
+        value: String,
+        chars: usize,
+        bytes: usize,
+    },
+    /// An error `at` characters in, its source `len` characters long.
+    Bad {
+        why: &'static str,
+        at: usize,
+        len: usize,
+    },
+    /// No closing quote before the end of the source.
+    Unterminated,
+}
+
+/// Read the string literal at the cursor when it holds a JSON5
+/// `LineContinuation`: a backslash and the `LineTerminatorSequence` after
+/// it (CRLF counting as one), which adds nothing to the value.
+///
+/// An escape-map entry, which this engine honours even when its
+/// replacement is empty, can spell a backslash before LF, CR, LS or PS,
+/// but not one before CRLF, which is two characters: an entry for CR
+/// takes the CR and leaves a bare LF, which is `unprintable`. Rewriting
+/// the source before lexing, as this crate's `parse_with` used to, made
+/// the value right and every later position wrong: it removed each
+/// continuation whole, so every token and every error after one was
+/// reported a row early (tabnas/json5#80), and it completed a partial
+/// escape across the line break, reading `\x4`, a continuation and `b` as
+/// `\x4b`.
+///
+/// The TypeScript and Go engines read no continuation at all, so their
+/// plugins read such a string themselves, and this reads every one too,
+/// not only one with a CRLF, so that the three agree on all of them:
+/// entries for the other four forms would read them, but the engine ends
+/// a pending surrogate pair at every escape-map hit, where the source
+/// holds the pair across the continuation.
+///
+/// So this reads the string where it stands, the way the engine's string
+/// matcher reads every other one: the same escape map, the same `\x` and
+/// `\u` forms, the same surrogate pairing, the same errors on the same
+/// characters. It moves the cursor with the engine's own advance, so every
+/// row, column and offset after the string is the one the engine counts
+/// for the source as it is. The grammar declares no `string.replace`, so
+/// there is no replace step. Mirrors `readContinuedString` in
+/// `ts/src/json5.ts`.
+fn read_continued_string(lexer: &mut Lexer<'_>, syntax: &StringSyntax) -> LexCheckResult {
+    let remaining = lexer.remaining();
+    let Some(quote) = remaining
+        .chars()
+        .next()
+        .filter(|quote| syntax.quotes.contains(*quote))
+    else {
+        return LexCheckResult::Continue;
+    };
+    let found = scan_string_escapes(remaining, quote);
+    if !found.continued {
+        return LexCheckResult::Continue;
+    }
+    // Such a string never reaches the string check, so one that also holds
+    // a forbidden escape is refused here instead, the same way and at the
+    // same place: `unexpected`, on the quote.
+    if found.forbidden {
+        return LexCheckResult::native_token(lexer.bad("unexpected"));
+    }
+    let start = lexer.point();
+    match decode_continued_string(remaining, quote, syntax) {
+        ContinuedString::Read {
+            value,
+            chars,
+            bytes,
+        } => {
+            let source = remaining[..bytes].to_string();
+            lexer.advance_chars(chars);
+            LexCheckResult::native_token(lexer.token(
+                "#ST",
+                TIN_ST,
+                Value::String(value),
+                source,
+                start,
+            ))
+        }
+        // Sited where it stands: on the offending character, or on the
+        // backslash of a malformed escape.
+        ContinuedString::Bad { why, at, len } => {
+            lexer.advance_chars(at);
+            let site = start.site.pos + at;
+            LexCheckResult::native_token(lexer.bad_span(why, site, site + len))
+        }
+        // Sited on the opening quote, as the engine sites it.
+        ContinuedString::Unterminated => {
+            let len = remaining.chars().count();
+            let site = start.site.pos;
+            LexCheckResult::native_token(lexer.bad_span("unterminated_string", site, site + len))
+        }
+    }
+}
+
+/// Decode the string literal opening at the start of `remaining`, without
+/// moving the lexer: see [`read_continued_string`].
+fn decode_continued_string(remaining: &str, quote: char, syntax: &StringSyntax) -> ContinuedString {
+    let multi_line = syntax.multi_line.contains(quote);
+    let next = |at: usize| remaining[at..].chars().next();
+    // Up to `len` characters from byte `from`, clipped at the end of the
+    // source, as the engine cuts the span of a malformed escape.
+    let span = |from: usize, len: usize| remaining[from..].chars().take(len).count();
+
+    let mut value = String::new();
+    let mut pending = None;
+    let mut i = quote.len_utf8();
+    let mut at = 1;
+
+    while let Some(c) = next(i) {
+        if c == quote {
+            flush_surrogate(&mut pending, &mut value);
+            return ContinuedString::Read {
+                value,
+                chars: at + 1,
+                bytes: i + c.len_utf8(),
+            };
+        }
+
+        if c == '\\' {
+            let Some(n) = next(i + 1) else {
+                break;
+            };
+            let body = i + 1 + n.len_utf8();
+
+            // The continuation: nothing in the value. It holds a surrogate
+            // pair open, because it is no code unit.
+            if is_line_terminator(n) {
+                if n == '\r' && remaining[body..].starts_with('\n') {
+                    i = body + 1;
+                    at += 3;
+                } else {
+                    i = body;
+                    at += 2;
                 }
-                out.push(d);
-                i += dsize;
-                if d == quote {
-                    break;
-                }
+                continue;
             }
+
+            if n != 'u' {
+                flush_surrogate(&mut pending, &mut value);
+            }
+
+            if let Some(replacement) = syntax.escape(n) {
+                value.push_str(replacement);
+                i = body;
+                at += 2;
+                continue;
+            }
+
+            if n == 'u' {
+                let Some(unit) = hex_digits(&remaining[body..], 4) else {
+                    return ContinuedString::Bad {
+                        why: "invalid_unicode",
+                        at,
+                        len: span(i, 6),
+                    };
+                };
+                emit_code_unit(unit, &mut pending, &mut value);
+                i = body + 4;
+                at += 6;
+                continue;
+            }
+
+            if n == 'x' && !syntax.escape_strict {
+                let Some(byte) = hex_digits(&remaining[body..], 2) else {
+                    return ContinuedString::Bad {
+                        why: "invalid_ascii",
+                        at,
+                        len: span(i, 4),
+                    };
+                };
+                value.push(char::from_u32(byte).expect("two hex digits are a scalar"));
+                i = body + 2;
+                at += 4;
+                continue;
+            }
+
+            if !syntax.allow_unknown {
+                return ContinuedString::Bad {
+                    why: "unexpected",
+                    at: at + 1,
+                    len: 1,
+                };
+            }
+            value.push(n);
+            i = body;
+            at += 2;
             continue;
         }
 
-        out.push(c);
-        i += size;
+        // CR and LF are this engine's `line.chars` (see JSON5_LINE_CHARS):
+        // string body only in a multi-line string. LS and PS are body in
+        // any string, and the engine's advance counts their rows.
+        let unprintable = if c == '\r' || c == '\n' {
+            !multi_line
+        } else {
+            (c as u32) < 32 && !syntax.allow_control
+        };
+        if unprintable {
+            return ContinuedString::Bad {
+                why: "unprintable",
+                at,
+                len: 1,
+            };
+        }
+
+        flush_surrogate(&mut pending, &mut value);
+        value.push(c);
+        i += c.len_utf8();
+        at += 1;
     }
-    out
+
+    ContinuedString::Unterminated
+}
+
+/// Exactly `count` hex digits at the start of `text`, or `None` when fewer
+/// are there: a short or junk-terminated run is not an escape.
+fn hex_digits(text: &str, count: usize) -> Option<u32> {
+    let digits = text.get(..count)?;
+    if !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    u32::from_str_radix(digits, 16).ok()
+}
+
+/// Append one decoded UTF-16 code unit, pairing surrogates as the engine's
+/// string matcher does: a high surrogate is held until the next code unit
+/// decides it, and one that nothing pairs with is U+FFFD.
+fn emit_code_unit(unit: u32, pending: &mut Option<u32>, out: &mut String) {
+    if (0xD800..=0xDBFF).contains(&unit) {
+        flush_surrogate(pending, out);
+        *pending = Some(unit);
+    } else if (0xDC00..=0xDFFF).contains(&unit) {
+        match pending.take() {
+            Some(high) => out.push(
+                char::from_u32(0x10000 + ((high - 0xD800) << 10) + (unit - 0xDC00))
+                    .expect("paired surrogates form a Unicode scalar"),
+            ),
+            None => out.push('\u{FFFD}'),
+        }
+    } else {
+        flush_surrogate(pending, out);
+        out.push(
+            char::from_u32(unit).expect("four hex digits outside the surrogates are a scalar"),
+        );
+    }
+}
+
+/// Resolve a held high surrogate that nothing paired with.
+fn flush_surrogate(pending: &mut Option<u32>, out: &mut String) {
+    if pending.take().is_some() {
+        out.push('\u{FFFD}');
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1015,12 +1274,16 @@ pub fn json5(parser: &mut Tabnas, options: &Json5Options) -> Result<(), PluginEr
 
     // The refs the document names, registered before it is installed.
     //
-    // `@fixed-check` is where the TypeScript and Go plugins rewrite the
-    // lexer's source to strip string line continuations. A Rust lexer
-    // check cannot replace the source it is lexing (the lexer borrows
-    // it), so the rewrite lives in `parse_with` and the hook is a no-op
-    // that only satisfies the reference.
-    parser.lex_check_ref(FIXED_CHECK, |_| LexCheckResult::Continue);
+    // `@fixed-check` runs before every lexer step, ahead of every matcher.
+    // A string that holds a line continuation is its own: at the string's
+    // opening quote it reads it (`read_continued_string`) and returns the
+    // finished token, or refuses it, as the string check would, when it
+    // also holds a forbidden escape. Anywhere else it does nothing, and
+    // every other string is the engine's.
+    let syntax = StringSyntax::from_document(&document);
+    parser.imperative_lex_check_ref(FIXED_CHECK, move |lexer: &mut Lexer<'_>| {
+        read_continued_string(lexer, &syntax)
+    });
 
     // Reject unquoted text that cannot start a valid JSON5 IdentifierName
     // AND is not a value keyword or a value regex match. Skipping the text
@@ -1055,40 +1318,14 @@ pub fn json5(parser: &mut Tabnas, options: &Json5Options) -> Result<(), PluginEr
         .unwrap_or("'\"")
         .to_string();
     parser.lex_check_ref(STRING_CHECK, move |remaining: &str| {
-        let bytes = remaining.as_bytes();
-        let Some(quote) = remaining
+        match remaining
             .chars()
             .next()
             .filter(|quote| quotes.contains(*quote))
-        else {
-            return LexCheckResult::Continue;
-        };
-        let mut i = quote.len_utf8();
-        while i < bytes.len() {
-            let c = remaining[i..].chars().next().expect("inside the source");
-            let size = c.len_utf8();
-            if c == quote {
-                break;
-            }
-            if c != '\\' {
-                i += size;
-                continue;
-            }
-            if i + size >= bytes.len() {
-                break;
-            }
-            let next = bytes[i + size];
-            let after = bytes.get(i + size + 1).copied().unwrap_or(0);
-            if next.is_ascii_digit() && (next != b'0' || after.is_ascii_digit())
-                || (next == b'u' && after == b'{')
-            {
-                return LexCheckResult::Skip;
-            }
-            // Skip the escape lead and the character it escapes.
-            let escaped = remaining[i + size..].chars().next().expect("checked above");
-            i += size + escaped.len_utf8();
+        {
+            Some(quote) if scan_string_escapes(remaining, quote).forbidden => LexCheckResult::Skip,
+            _ => LexCheckResult::Continue,
         }
-        LexCheckResult::Continue
     });
 
     // Trailing-decimal-with-exponent (`5.e4`) and uppercase `0X` hex: the
@@ -1179,11 +1416,10 @@ pub fn json5(parser: &mut Tabnas, options: &Json5Options) -> Result<(), PluginEr
     }
 
     // Record the resolved options on the instance so `parse_with` can
-    // apply the requireValue rule and the line-continuation rewrite. The
-    // TypeScript plugin wraps the parser's `start` for this; the engine
-    // here runs a `parser.start` hook INSTEAD of the parse rather than
-    // before it, so the guard lives in the package-level entry point, as
-    // in Go.
+    // apply the requireValue rule. The TypeScript plugin wraps the
+    // parser's `start` for this; the engine here runs a `parser.start`
+    // hook INSTEAD of the parse rather than before it, so the guard lives
+    // in the package-level entry point, as in Go.
     parser.decorate(OPTIONS_MARK, options);
     Ok(())
 }
@@ -1261,16 +1497,14 @@ fn value_error(parser: &Tabnas, code: &str, src: &str) -> Json5Error {
 /// TypeScript plugin wraps.
 ///
 /// This is the entry point the plugin's behaviour is specified against.
-/// Two things happen here that the engine's own [`Tabnas::parse`] cannot
-/// do from inside a plugin:
-///
-/// - the `requireValue` rule: with the option on (the default) an empty
-///   source is `json5_empty` and a whitespace-only or comments-only one
-///   is `json5_no_value`; with it off, every such source is the grammar's
-///   declared empty result, `null`;
-/// - string line continuations: a backslash before a line terminator
-///   sequence is removed inside string literals before lexing, because
-///   the lexer's escape map cannot express the two-character CRLF form.
+/// It applies the one thing the engine's own [`Tabnas::parse`] cannot do
+/// from inside a plugin, the `requireValue` rule: with the option on (the
+/// default) an empty source is `json5_empty` and a whitespace-only or
+/// comments-only one is `json5_no_value`; with it off, every such source
+/// is the grammar's declared empty result, `null`. Everything else,
+/// string line continuations included, is the instance's own, so
+/// [`Tabnas::parse`] reads it the same way and reports the same
+/// positions.
 ///
 /// A parser that does not carry the plugin is parsed as it is.
 ///
@@ -1311,13 +1545,7 @@ pub fn parse_with(parser: &Tabnas, src: &str) -> Result<Value, Json5Error> {
         // `undefined` until 2026-09-21.
         return parser.parse("");
     }
-    let quotes = if options.backtick_string {
-        "'\"`"
-    } else {
-        "'\""
-    };
-    let rewritten = strip_line_continuations(src, quotes, '\\', options.hash_comment);
-    parser.parse(&rewritten)
+    parser.parse(src)
 }
 
 /// Parse a JSON5 source string with the shared default parser.

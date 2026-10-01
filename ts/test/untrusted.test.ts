@@ -128,8 +128,8 @@ describe('untrusted', () => {
     assert.strictEqual(names.length, 1)
     assert.strictEqual(names[0].length, 500_000)
 
-    // 200,000 line continuations collapse to the empty string, and the
-    // rewrite that strips them does not go quadratic doing it.
+    // 200,000 line continuations collapse to the empty string, and reading
+    // them does not go quadratic.
     assert.strictEqual(j.parse('"' + '\\\n'.repeat(200_000) + '"'), '')
 
     // 200,000 unicode escapes decode one for one.

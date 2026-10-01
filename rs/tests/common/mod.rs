@@ -94,7 +94,7 @@ pub fn options_from_column(raw: &str, at: &str) -> Result<Json5Options, Failure>
 
 /// A fresh parser with `options`, parsing `input` through the
 /// package-level entry point (the Go `Parse(j, src)`), which applies the
-/// requireValue rule and the line-continuation rewrite.
+/// requireValue rule.
 pub fn parse_fresh(options: Json5Options, input: &str) -> Result<Value, Failure> {
     let parser = make_with(options);
     parse_with(&parser, input)

@@ -143,6 +143,55 @@ describe('json5', () => {
     eq(jb.parse('`backtick`'), 'backtick')
   })
 
+  // A string line continuation is read where it stands, so a string spans
+  // the lines it is written on and every later token keeps the row, column
+  // and offset the source gives it (tabnas/json5#80). Removing the
+  // continuation from the source before lexing kept the value and put the
+  // `@` below on row 2 in both of the first two cases. These are the
+  // issue's table: row 3 after an LF and after a CRLF continuation, and
+  // row 2 in the control, which has none.
+  function errorAt(j: any, src: string): any[] {
+    try {
+      j.parse(src)
+    } catch (err: any) {
+      return [err.code, err.lineNumber, err.columnNumber, err.toJSON().pos]
+    }
+    assert.fail(`${JSON.stringify(src)} should throw`)
+  }
+
+  test('a-line-continuation-keeps-every-later-position', () => {
+    const j = new Tabnas().use(jsonic).use(Json5)
+    assert.deepStrictEqual(
+      errorAt(j, "['a\\\nb',\n  @]"), ['unexpected', 3, 3, 11])
+    assert.deepStrictEqual(
+      errorAt(j, "['a\\\r\nb',\r\n  @]"), ['unexpected', 3, 3, 13])
+    assert.deepStrictEqual(
+      errorAt(j, "['ab',\n  @]"), ['unexpected', 2, 3, 9])
+  })
+
+  // A CRLF continuation reads exactly as an LF one: the same value, and the
+  // same row and column for what follows it on the line after.
+  test('a-crlf-continuation-reads-as-an-lf-one', () => {
+    const j = new Tabnas().use(jsonic).use(Json5)
+    for (const eol of ['\n', '\r\n']) {
+      eq(j.parse(`'a\\${eol}b'`), 'ab')
+      assert.deepStrictEqual(
+        errorAt(j, `['a\\${eol}b', @]`).slice(0, 3), ['unexpected', 2, 5])
+    }
+  })
+
+  // Only an odd run of backslashes escapes the line break. Two before a
+  // CRLF are an escaped backslash and then a real line break, which a
+  // string may not hold; three are an escaped backslash and a continuation.
+  test('only-an-odd-run-of-backslashes-continues-a-line', () => {
+    const j = new Tabnas().use(jsonic).use(Json5)
+    assert.deepStrictEqual(
+      errorAt(j, "['a\\\\\r\nb']").slice(0, 3), ['unprintable', 1, 6])
+    eq(j.parse("['a\\\\\\\r\nb']"), ['a\\b'])
+    assert.deepStrictEqual(
+      errorAt(j, "['a\\\\\\\r\nb', @]").slice(0, 3), ['unexpected', 2, 5])
+  })
+
   test('keys', () => {
     const j = new Tabnas().use(jsonic).use(Json5)
 

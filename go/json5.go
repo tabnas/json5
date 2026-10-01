@@ -60,106 +60,256 @@ func isLineTerminatorRune(r rune) bool {
 	return r == '\n' || r == '\r' || r == '\u2028' || r == '\u2029'
 }
 
-// stripLineContinuations removes JSON5 string line continuations: a
-// backslash immediately followed by a LineTerminatorSequence (CRLF, CR, LF,
-// LS, PS) produces nothing, letting a string span lines. CRLF is handled
-// first so the two-character sequence is consumed before a lone CR / LF.
-//
-// A LineContinuation is only part of the STRING grammar, so the scan tracks
-// lexical context and rewrites inside string literals only. A blanket
-// replace would also splice out a backslash-newline sitting in a comment
-// (extending the comment over the following line, swallowing real tokens) or
-// between tokens (silently accepting "[1,\<LF>2]"). Mirrors the TS
-// stripLineContinuations.
-func stripLineContinuations(src string, quotes map[rune]bool, esc rune, hashComment bool) string {
-	if !strings.ContainsRune(src, esc) {
-		return src
-	}
-	var b strings.Builder
-	b.Grow(len(src))
-	i := 0
-	for i < len(src) {
-		c, size := utf8.DecodeRuneInString(src[i:])
+// What a string literal holds, as scanStringEscapes reports it. A string
+// with neither is the engine's.
+type stringEscapes struct {
+	// forbidden: an escape ES5.1 refuses (\1..\9, \0 before a digit, \u{),
+	// so the string is refused at its quote.
+	forbidden bool
+	// continued: a LineContinuation, so the fixed check reads the string.
+	continued bool
+}
 
-		// Comments are copied through verbatim.
-		if c == '/' && strings.HasPrefix(src[i+size:], "/") {
-			j := i + size + 1
-			for j < len(src) {
-				r, rsize := utf8.DecodeRuneInString(src[j:])
-				if isLineTerminatorRune(r) {
-					break
-				}
-				j += rsize
-			}
-			b.WriteString(src[i:j])
-			i = j
-			continue
+// scanStringEscapes reports what the string literal opening at start holds,
+// walked the way the string check has always walked it: an escape takes the
+// character after it along, and the walk ends at the closing quote or the
+// end of the source. Mirrors scanString in ts/src/json5.ts.
+func scanStringEscapes(src string, start int, quote, esc rune) stringEscapes {
+	var found stringEscapes
+	_, qsize := utf8.DecodeRuneInString(src[start:])
+	for i := start + qsize; i < len(src); {
+		r, size := utf8.DecodeRuneInString(src[i:])
+		if r == quote {
+			break
 		}
-		if hashComment && c == '#' {
-			j := i + size
-			for j < len(src) {
-				r, rsize := utf8.DecodeRuneInString(src[j:])
-				if isLineTerminatorRune(r) {
-					break
-				}
-				j += rsize
-			}
-			b.WriteString(src[i:j])
-			i = j
-			continue
-		}
-		if c == '/' && strings.HasPrefix(src[i+size:], "*") {
-			end := strings.Index(src[i+size+1:], "*/")
-			j := len(src)
-			if end >= 0 {
-				j = i + size + 1 + end + 2
-			}
-			b.WriteString(src[i:j])
-			i = j
-			continue
-		}
-
-		// Inside a string literal: drop escape+LineTerminatorSequence, copy
-		// any other escape pair whole so an escaped quote does not end the
-		// scan.
-		if quotes[c] {
-			quote := c
-			b.WriteRune(c)
+		if r != esc {
 			i += size
-			for i < len(src) {
-				d, dsize := utf8.DecodeRuneInString(src[i:])
-				if d == esc {
-					if i+dsize >= len(src) {
-						b.WriteRune(d)
-						i += dsize
-						break
-					}
-					n, nsize := utf8.DecodeRuneInString(src[i+dsize:])
-					if n == '\r' && strings.HasPrefix(src[i+dsize+nsize:], "\n") {
-						i += dsize + nsize + 1
-						continue
-					}
-					if isLineTerminatorRune(n) {
-						i += dsize + nsize
-						continue
-					}
-					b.WriteString(src[i : i+dsize+nsize])
-					i += dsize + nsize
-					continue
-				}
-				b.WriteRune(d)
-				i += dsize
-				if d == quote {
-					break
-				}
+			continue
+		}
+		if i+size >= len(src) {
+			break
+		}
+		next := src[i+size]
+		var after byte
+		if i+size+1 < len(src) {
+			after = src[i+size+1]
+		}
+		// Skip the escape lead and the character it escapes.
+		n, nsize := utf8.DecodeRuneInString(src[i+size:])
+		if ('1' <= next && next <= '9') ||
+			(next == '0' && '0' <= after && after <= '9') ||
+			(next == 'u' && after == '{') {
+			found.forbidden = true
+		} else if isLineTerminatorRune(n) {
+			found.continued = true
+		}
+		i += size + nsize
+	}
+	return found
+}
+
+// readContinuedString reads the string literal at the cursor, which holds a
+// JSON5 LineContinuation: a backslash and the LineTerminatorSequence after
+// it (CRLF counting as one), which adds nothing to the value.
+//
+// The engine cannot read one. Its escape map is keyed by the single
+// character after the backslash, an entry whose replacement is the empty
+// string only removes the escape, and its string matcher never counts a row
+// inside an escape. Removing the continuations from the source before
+// lexing, as this plugin used to, made the value right and every later
+// position wrong: each one took a line out of the text the lexer counted,
+// so every token and every error after it was reported that many rows early
+// (tabnas/json5#80). The removal also completed a partial escape across the
+// line break, reading \x4, a continuation and b as \x4b.
+//
+// So this reads the string where it stands, the way the engine's string
+// matcher reads every other one: the same escape map, the same \x and \u
+// forms, the same surrogate pairing, the same errors on the same characters.
+// Nothing is rewritten, so every row, column and offset after the string is
+// the source's own. A continuation ends a row when its terminator is one of
+// the engine's row characters (LF, LS and PS, so CRLF too); a lone CR is not
+// one, inside a string or out, and counts as the two columns the source
+// has. A continuation is no code unit, so a surrogate pair written either
+// side of one is still a pair, as it is in the source text. The grammar
+// declares no string.replace, so there is no replace step. Mirrors
+// readContinuedString in ts/src/json5.ts.
+func readContinuedString(lex *jsonic.Lex, quote, esc rune) *jsonic.Token {
+	cfg := lex.Config
+	p := lex.Cursor()
+	src := lex.Src
+	start := p.SI
+	_, qsize := utf8.DecodeRuneInString(src[start:])
+	multiLine := cfg.MultiChars[quote]
+
+	sI := start + qsize
+	rI := p.RI
+	cI := p.CI + 1
+	var sb strings.Builder
+
+	// UTF-16 surrogate pairing, as the engine's string matcher does it: a
+	// high surrogate is held until the next code unit decides it, and one
+	// that nothing pairs with is U+FFFD.
+	pendingHi := -1
+	flushHi := func() {
+		if pendingHi >= 0 {
+			sb.WriteRune(utf8.RuneError)
+			pendingHi = -1
+		}
+	}
+	emitUnit := func(cc int) {
+		if 0xD800 <= cc && cc <= 0xDBFF {
+			flushHi()
+			pendingHi = cc
+			return
+		}
+		if 0xDC00 <= cc && cc <= 0xDFFF {
+			if pendingHi >= 0 {
+				sb.WriteRune(rune(0x10000 + (pendingHi-0xD800)<<10 + (cc - 0xDC00)))
+				pendingHi = -1
+				return
 			}
+			sb.WriteRune(utf8.RuneError)
+			return
+		}
+		flushHi()
+		sb.WriteRune(rune(cc))
+	}
+
+	// An error inside the string is sited where it stands: on the offending
+	// character, or on the backslash of a malformed escape.
+	bad := func(why string, at, atCI, end int) *jsonic.Token {
+		if end > len(src) {
+			end = len(src)
+		}
+		p.SI, p.RI, p.CI = at, rI, atCI
+		tkn := lex.Token("#BD", jsonic.TinBD, nil, src[at:end])
+		tkn.Why = why
+		return tkn
+	}
+
+	for sI < len(src) {
+		c, size := utf8.DecodeRuneInString(src[sI:])
+
+		if c == quote {
+			flushHi()
+			tkn := lex.Token("#ST", jsonic.TinST, sb.String(), src[start:sI+size])
+			p.SI, p.RI, p.CI = sI+size, rI, cI+1
+			return tkn
+		}
+
+		if c == esc {
+			if sI+size >= len(src) {
+				break
+			}
+			n, nsize := utf8.DecodeRuneInString(src[sI+size:])
+			body := sI + size + nsize
+
+			if isLineTerminatorRune(n) {
+				ender := n
+				if n == '\r' && strings.HasPrefix(src[body:], "\n") {
+					ender = '\n'
+					body++
+				}
+				sI = body
+				if cfg.RowChars[ender] {
+					rI++
+					cI = 1
+				} else {
+					cI += 2
+				}
+				continue
+			}
+
+			if n != 'u' {
+				flushHi()
+			}
+
+			if rep, ok := cfg.EscapeMap[string(n)]; ok {
+				sb.WriteString(rep)
+				sI = body
+				cI += 2
+				continue
+			}
+
+			if n == 'x' && !cfg.EscapeStrict {
+				cc := hexValue(src, body, 2)
+				if cc < 0 {
+					return bad("invalid_ascii", sI, cI, sI+4)
+				}
+				emitUnit(cc)
+				sI = body + 2
+				cI += 4
+				continue
+			}
+
+			if n == 'u' {
+				cc := hexValue(src, body, 4)
+				if cc < 0 {
+					return bad("invalid_unicode", sI, cI, sI+6)
+				}
+				emitUnit(cc)
+				sI = body + 4
+				cI += 6
+				continue
+			}
+
+			if !cfg.AllowUnknownEscape {
+				return bad("unexpected", sI+size, cI+1, body)
+			}
+			sb.WriteString(src[sI+size : body])
+			sI = body
+			cI += 2
 			continue
 		}
 
-		b.WriteString(src[i : i+size])
-		i += size
+		if c < 32 {
+			if multiLine && cfg.LineChars[c] {
+				flushHi()
+				sb.WriteRune(c)
+				sI += size
+				if cfg.RowChars[c] {
+					rI++
+				}
+				cI = 1
+				continue
+			}
+			if !cfg.AllowControl || cfg.LineChars[c] {
+				return bad("unprintable", sI, cI, sI+size)
+			}
+		}
+
+		flushHi()
+		sb.WriteString(src[sI : sI+size])
+		sI += size
+		cI++
 	}
-	return b.String()
+
+	// Unterminated: sited on the opening quote, as the engine sites it.
+	tkn := lex.Token("#BD", jsonic.TinBD, nil, src[start:])
+	tkn.Why = "unterminated_string"
+	return tkn
+}
+
+// hexValue reads exactly n hex digits at src[at:], or answers -1 when fewer
+// than n are there: a short or junk-terminated run is not an escape.
+func hexValue(src string, at, n int) int {
+	if at+n > len(src) {
+		return -1
+	}
+	v := 0
+	for _, b := range []byte(src[at : at+n]) {
+		switch {
+		case '0' <= b && b <= '9':
+			v = v<<4 | int(b-'0')
+		case 'a' <= b && b <= 'f':
+			v = v<<4 | int(b-'a'+10)
+		case 'A' <= b && b <= 'F':
+			v = v<<4 | int(b-'A'+10)
+		default:
+			return -1
+		}
+	}
+	return v
 }
 
 // --- BEGIN EMBEDDED json5-grammar.jsonic ---
@@ -204,7 +354,10 @@ const grammarText = `# JSON5 Grammar Definition
 
   # LexCheck hooks close the last gaps the built-in lexer has against
   # the JSON5 spec:
-  #   fixed.check  preprocesses backslash+CRLF inside strings.
+  #   fixed.check  reads a string literal that holds a line continuation
+  #                (a backslash and a LineTerminatorSequence), which the
+  #                escape map cannot express, where it stands, so every
+  #                row, column and offset after it is the source's own.
   #   text.check   rejects unquoted text that cannot start a valid
   #                JSON5 IdentifierName AND is not a registered value
   #                keyword or regex-matched number.
@@ -236,8 +389,12 @@ const grammarText = `# JSON5 Grammar Definition
     }
   }
 
-  # JSON5 strings: single or double quote, with ES5.1 escapes plus line
-  # continuations (backslash + line terminator produces an empty string).
+  # JSON5 strings: single or double quote, with ES5.1 escapes. A line
+  # continuation (backslash + LineTerminatorSequence, which produces the
+  # empty string) has no entry here: an entry is keyed by one character,
+  # which cannot spell CRLF, and the TypeScript and Go lexers take an
+  # empty replacement as no entry at all. A string holding one is read by
+  # fixed.check instead.
   options: string: {
     lex: true
     check: '@string-check'
@@ -257,11 +414,6 @@ const grammarText = `# JSON5 Grammar Definition
       '` + "`" + `': '` + "`" + `'
       '\\': '\\'
       '/': '/'
-      # JSON5 line continuation: backslash + LineTerminatorSequence.
-      '\n': ''
-      '\r': ''
-      '\u2028': ''
-      '\u2029': ''
     }
     allowUnknown: true
   }
@@ -486,43 +638,39 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 	requireValue := optBool(opts, "requireValue", true)
 	strictValue := optBool(opts, "strictValue", true)
 
-	// fixedCheck runs before every lexer step but gates its own work so the
-	// preprocessing happens exactly once per parse. It removes JSON5 string
-	// line continuations — a backslash followed by a LineTerminatorSequence
-	// (CRLF, CR, LF, LS, PS) produces nothing, letting a string span lines.
-	// The escape map cannot express this: the lexer drops any escape whose
-	// replacement is the empty string, so the continuation is stripped here.
+	// fixedCheck runs before every lexer step, ahead of every matcher, and
+	// so ahead of jsonic's own unprintable pre-scan, which reads a backslash
+	// and a CR as one escape and then refuses the LF after them. A string
+	// that holds a LineContinuation is its own: at the string's opening
+	// quote it reads it (readContinuedString) and hands the engine the
+	// finished token. Such a string never reaches stringCheck, so one that
+	// also holds a forbidden escape is refused here instead, the same way
+	// and at the same place: unexpected, on the quote. Anywhere else
+	// fixedCheck does nothing, and every other string is the engine's.
 	fixedCheck := func(lex *jsonic.Lex) *jsonic.LexCheckResult {
-		if lex.Ctx == nil || lex.Ctx.U == nil {
+		p := lex.Cursor()
+		cfg := lex.Config
+		if p == nil || cfg == nil || p.SI >= len(lex.Src) {
 			return nil
 		}
-		if _, done := lex.Ctx.U["json5_preprocessed"]; done {
+		quote, qsize := utf8.DecodeRuneInString(lex.Src[p.SI:])
+		if !cfg.StringChars[quote] {
 			return nil
 		}
-		lex.Ctx.U["json5_preprocessed"] = true
-		quotes := map[rune]bool{}
-		esc := '\\'
-		hash := false
-		if lcfg := lex.Config; lcfg != nil {
-			if lcfg.StringChars != nil {
-				quotes = lcfg.StringChars
-			}
-			if lcfg.EscapeChar != 0 {
-				esc = lcfg.EscapeChar
-			}
-			for _, start := range lcfg.CommentLine {
-				if start == "#" {
-					hash = true
-				}
-			}
+		esc := cfg.EscapeChar
+		if esc == 0 {
+			esc = '\\'
 		}
-		if rewritten := stripLineContinuations(lex.Src, quotes, esc, hash); rewritten != lex.Src {
-			lex.Src = rewritten
-			if p := lex.Cursor(); p != nil {
-				p.Len = len(lex.Src)
-			}
+		found := scanStringEscapes(lex.Src, p.SI, quote, esc)
+		if !found.continued {
+			return nil
 		}
-		return nil
+		if found.forbidden {
+			tkn := lex.Token("#BD", jsonic.TinBD, nil, lex.Src[p.SI:p.SI+qsize])
+			tkn.Why = "unexpected"
+			return &jsonic.LexCheckResult{Done: true, Token: tkn}
+		}
+		return &jsonic.LexCheckResult{Done: true, Token: readContinuedString(lex, quote, esc)}
 	}
 
 	// textCheck rejects unquoted text tokens that cannot start a valid
@@ -577,8 +725,7 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 		if cfg == nil || cfg.StringChars == nil {
 			return nil
 		}
-		src := lex.Src
-		quote, qsize := utf8.DecodeRuneInString(src[p.SI:])
+		quote, _ := utf8.DecodeRuneInString(lex.Src[p.SI:])
 		if !cfg.StringChars[quote] {
 			return nil
 		}
@@ -586,31 +733,8 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 		if esc == 0 {
 			esc = '\\'
 		}
-		for i := p.SI + qsize; i < len(src); {
-			r, size := utf8.DecodeRuneInString(src[i:])
-			if r == quote {
-				break
-			}
-			if r != esc {
-				i += size
-				continue
-			}
-			if i+size >= len(src) {
-				break
-			}
-			next := src[i+size]
-			var after byte
-			if i+size+1 < len(src) {
-				after = src[i+size+1]
-			}
-			if ('1' <= next && next <= '9') ||
-				(next == '0' && '0' <= after && after <= '9') ||
-				(next == 'u' && after == '{') {
-				return &jsonic.LexCheckResult{Done: true, Token: nil}
-			}
-			// Skip the escape lead and the character it escapes.
-			_, nsize := utf8.DecodeRuneInString(src[i+size:])
-			i += size + nsize
+		if scanStringEscapes(lex.Src, p.SI, quote, esc).forbidden {
+			return &jsonic.LexCheckResult{Done: true, Token: nil}
 		}
 		return nil
 	}

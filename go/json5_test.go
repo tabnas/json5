@@ -225,6 +225,91 @@ func TestStrings(t *testing.T) {
 	eq(t, parse(t, jb, "`backtick`"), "backtick", "`backtick`")
 }
 
+// errorAt parses src through both entry points, Parse(j, src) and the
+// instance's own j.Parse(src), requires them to fail alike, and returns the
+// error. The continuation is read by the lexer, so the two agree.
+func errorAt(t *testing.T, j *jsonic.Jsonic, src string) *jsonic.JsonicError {
+	t.Helper()
+	var first *jsonic.JsonicError
+	for _, parse := range []func(string) (any, error){
+		func(s string) (any, error) { return Parse(j, s) },
+		j.Parse,
+	} {
+		v, err := parse(src)
+		var je *jsonic.JsonicError
+		if !errors.As(err, &je) {
+			t.Fatalf("Parse(%q) = %#v, %v; want a *JsonicError", src, v, err)
+		}
+		if first == nil {
+			first = je
+		} else if je.Code != first.Code || je.Row != first.Row || je.Col != first.Col || je.Pos != first.Pos {
+			t.Errorf("Parse(%q): the entry points disagree, %s at %d:%d pos %d and %s at %d:%d pos %d",
+				src, first.Code, first.Row, first.Col, first.Pos, je.Code, je.Row, je.Col, je.Pos)
+		}
+	}
+	return first
+}
+
+// A string line continuation is read where it stands, so a string spans the
+// lines it is written on and every later token keeps the row, column and
+// offset the source gives it (tabnas/json5#80). Removing the continuation
+// from the source before lexing kept the value and put the `@` below on row
+// 2 in both of the first two cases. These are the issue's table: row 3 after
+// an LF and after a CRLF continuation, and row 2 in the control, which has
+// none. Mirrors a-line-continuation-keeps-every-later-position in
+// ts/test/json5.test.ts.
+func TestALineContinuationKeepsEveryLaterPosition(t *testing.T) {
+	j := parser(t)
+	for _, c := range []struct {
+		src           string
+		row, col, pos int
+	}{
+		{"['a\\\nb',\n  @]", 3, 3, 11},
+		{"['a\\\r\nb',\r\n  @]", 3, 3, 13},
+		{"['ab',\n  @]", 2, 3, 9},
+	} {
+		je := errorAt(t, j, c.src)
+		if je.Code != "unexpected" || je.Row != c.row || je.Col != c.col || je.Pos != c.pos {
+			t.Errorf("Parse(%q) = %s at %d:%d pos %d, want unexpected at %d:%d pos %d",
+				c.src, je.Code, je.Row, je.Col, je.Pos, c.row, c.col, c.pos)
+		}
+	}
+}
+
+// A CRLF continuation reads exactly as an LF one: the same value, and the
+// same row and column for what follows it on the line after.
+func TestACRLFContinuationReadsAsAnLFOne(t *testing.T) {
+	j := parser(t)
+	for _, eol := range []string{"\n", "\r\n"} {
+		src := "'a\\" + eol + "b'"
+		eq(t, parse(t, j, src), "ab", src)
+		if v, err := Parse(j, src); err != nil || v != "ab" {
+			t.Errorf("Parse(j, %q) = %#v, %v; want \"ab\"", src, v, err)
+		}
+		next := "['a\\" + eol + "b', @]"
+		if je := errorAt(t, j, next); je.Code != "unexpected" || je.Row != 2 || je.Col != 5 {
+			t.Errorf("Parse(%q) = %s at %d:%d, want unexpected at 2:5",
+				next, je.Code, je.Row, je.Col)
+		}
+	}
+}
+
+// Only an odd run of backslashes escapes the line break. Two before a CRLF
+// are an escaped backslash and then a real line break, which a string may
+// not hold; three are an escaped backslash and a continuation.
+func TestOnlyAnOddRunOfBackslashesContinuesALine(t *testing.T) {
+	j := parser(t)
+	if je := errorAt(t, j, "['a\\\\\r\nb']"); je.Code != "unprintable" || je.Row != 1 || je.Col != 6 {
+		t.Errorf("two backslashes before CRLF = %s at %d:%d, want unprintable at 1:6",
+			je.Code, je.Row, je.Col)
+	}
+	eq(t, parse(t, j, "['a\\\\\\\r\nb']"), []any{"a\\b"}, "three backslashes before CRLF")
+	if je := errorAt(t, j, "['a\\\\\\\r\nb', @]"); je.Code != "unexpected" || je.Row != 2 || je.Col != 5 {
+		t.Errorf("after three backslashes and CRLF = %s at %d:%d, want unexpected at 2:5",
+			je.Code, je.Row, je.Col)
+	}
+}
+
 func TestRejectsNonJSON5(t *testing.T) {
 	j := parser(t)
 	cases := []string{
