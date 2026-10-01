@@ -94,18 +94,30 @@ Two things go on AFTER the document, through `set_options`:
 Every `@name` in the grammar is registered on the instance BEFORE the
 document is installed, because the document is what looks them up:
 
-- `@fixed-check` is a **no-op**. In TypeScript and Go it rewrites the
-  lexer's source to strip string line continuations; a Rust lexer check
-  is `Fn(&str) -> LexCheckResult` (or takes `&mut Lexer` borrowing the
-  source) and cannot replace what it is lexing. The rewrite lives in
-  `parse_with`. The registration only satisfies the reference.
+- `@fixed-check` is an `imperative_lex_check_ref` that reads every
+  string holding a line continuation (`read_continued_string`), as the
+  TypeScript and Go fixed checks do: it moves the cursor with the
+  engine's own `advance_chars`, so rows, columns and offsets after the
+  string are the engine's count of the source as it is, and returns the
+  `#ST` token, or a bad token sited where `match_string` would site its
+  error. The engine's escape map would read four of the five forms, but
+  not `\` before CRLF, and it ends a pending surrogate pair at each, so
+  the check takes them all. A check cannot read the live options, so the
+  string options it needs (quotes, multi-line quotes, the escape map,
+  `allowUnknown`, `escapeStrict`, `allowControl`) are copied from the
+  document at install, `StringSyntax`. Until tabnas/json5#80 the check
+  was a no-op and `parse_with` stripped continuations from the source,
+  which put every later token a row early.
 - `@text-check` returns `Skip` for unquoted text that cannot start an
   `IdentifierName` and is not a value keyword or value regex; an
   unclaimed character is the engine's `unexpected`. The keyword list is
   captured at install from the document plus the `Infinity` family:
   the check has no access to the live config.
 - `@string-check` scans from the quote for the escapes ES5.1 forbids
-  (`\1`..`\9`, `\0<digit>`, `\u{`) and returns `Skip`.
+  (`\1`..`\9`, `\0<digit>`, `\u{`) and returns `Skip`. It shares the
+  walk, `scan_string_escapes`, with the fixed check, which refuses a
+  continuation string holding one the same way, since such a string
+  never reaches this check.
 - `@parse-trailing-dec-exp` and `@parse-uppercase-hex` are
   `value_transform_ref`s. Note the Rust number lexer already accepts
   `0X` and `5.e4`, so the regex definitions mostly pin agreement --
@@ -165,14 +177,14 @@ cannot wrap the parse the way the TypeScript one does. `parse_with`
 reads the options the plugin recorded as a decoration (`json5$options`),
 applies the requireValue codes, delegates a no-value source to
 `parse("")` when the option is off (so the grammar's `emptyResult` is
-written once), strips line continuations inside string literals, and
-parses. A parser without the decoration is parsed as it is.
+written once), and parses. A parser without the decoration is parsed as
+it is.
 
-`Tabnas::parse` on the instance still parses JSON5: the escape map
-handles `\` before LF, CR, LS and PS natively (the Rust lexer honours an
-empty replacement, where the TypeScript one drops it), so only `\`
-before CRLF and the two requireValue codes need the wrapper. Every test
-and every fixture goes through `parse_with`.
+`Tabnas::parse` on the instance parses JSON5 exactly as `parse_with`
+does, line continuations included, since the fixed check reads them in
+the lexer; only the two requireValue codes need the wrapper. Every
+fixture goes through `parse_with`, and the continuation tests in
+`tests/json5_test.rs` hold the two entry points to the same answer.
 
 ## The divergence register
 

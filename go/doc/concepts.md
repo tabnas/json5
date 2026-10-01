@@ -97,15 +97,18 @@ the lexer calls at each step:
 
 - **String line continuations.** A backslash immediately followed by a
   line terminator must produce *nothing*, letting a string span lines.
-  The escape map cannot encode this (the lexer discards any escape whose
-  replacement is empty), so a `fixedCheck` hook rewrites the source once
-  per parse, stripping `\` + line-terminator sequences before lexing.
-  This is why `"line1\<newline>line2"` parses to `"line1line2"`. The
-  rewrite is context-aware (`stripLineContinuations`): a
-  `LineContinuation` belongs to the *string* grammar, so the scan copies
-  comments and unquoted text through untouched. A blanket replacer would
-  extend a `//` comment over the next line, and would silently accept
-  `[1,\<newline>2]`.
+  The escape map cannot encode this: each entry stands for one
+  character, so none can spell a CR followed by an LF, the lexer takes
+  an escape whose replacement is empty as no escape at all, and the
+  string lexer counts no row inside an escape. So the `fixedCheck` hook
+  reads any string that holds a continuation itself
+  (`readContinuedString`), from the quote that opens it, and hands the
+  lexer the finished token. This is why `"line1\<newline>line2"` parses
+  to `"line1line2"`, and why every token and every error after it keeps
+  the row, column, and offset the source gives it. The hook rewrites
+  nothing, and it runs only where the lexer starts a token, so a
+  `LineContinuation` stays in the *string* grammar: a `//` comment still
+  ends at its line break, and `[1,\<newline>2]` is still an error.
 - **Identifier-aware text rejection.** A `textCheck` hook stops the lexer
   at any unquoted run that neither begins a valid JSON5 `IdentifierStart`
   nor matches a registered value keyword / regex. This produces a clean

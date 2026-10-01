@@ -119,7 +119,7 @@ fn every_fixture_has_the_standard_shape() {
 /// the same commit, deliberately.
 const CENSUS: &[(&str, usize)] = &[
     ("arrays.tsv", 9),
-    ("comments.tsv", 10),
+    ("comments.tsv", 12),
     ("infinity-nan.tsv", 8),
     ("json-is-json5.tsv", 5),
     ("json5-org.tsv", 2),
@@ -129,7 +129,7 @@ const CENSUS: &[(&str, usize)] = &[
     ("options.tsv", 33),
     ("primitives.tsv", 8),
     ("rejects-non-json5.tsv", 6),
-    ("strings.tsv", 47),
+    ("strings.tsv", 69),
     ("trailing-commas.tsv", 5),
 ];
 
@@ -158,7 +158,7 @@ fn the_fixture_census_is_the_rows_the_runner_runs() {
     );
     assert_eq!(
         found.iter().map(|(_, rows)| rows).sum::<usize>(),
-        202,
+        226,
         "the total row count changed; update it with CENSUS"
     );
 }

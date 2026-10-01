@@ -43,6 +43,12 @@ makeRunner({
   // expected values rather than a special case in the loop.
   parseExpected: (expected) =>
     expected in SPECIAL ? SPECIAL[expected] : parseExpect(expected),
+
+  // An error cell may pin where the error is reported as well as its code,
+  // `ERROR:<code>@<row>:<col>`. This engine's errors carry the position as
+  // `lineNumber` and `columnNumber`, not the `row` and `col` the runner
+  // reads by default; the Go and Rust runners read their own fields.
+  errorPos: (err: any) => ({ row: err?.lineNumber, col: err?.columnNumber }),
 })
   // `findSpecDir` walks up from this file — `dist-test/` at runtime — to the
   // repo root's `test/spec`, so moving the suite does not mean recounting

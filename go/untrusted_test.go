@@ -158,8 +158,8 @@ func TestVeryLongWellFormedInputParsesToTheRightValue(t *testing.T) {
 		}
 	}
 
-	// 200,000 line continuations collapse to the empty string, and the
-	// rewrite that strips them does not go quadratic doing it.
+	// 200,000 line continuations collapse to the empty string, and reading
+	// them does not go quadratic.
 	v, err = Parse(j, `"`+strings.Repeat("\\\n", 200000)+`"`)
 	if err != nil {
 		t.Fatalf("continuations: %v", err)

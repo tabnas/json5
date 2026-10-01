@@ -118,7 +118,10 @@ const grammarText = `
 
   # LexCheck hooks close the last gaps the built-in lexer has against
   # the JSON5 spec:
-  #   fixed.check  preprocesses backslash+CRLF inside strings.
+  #   fixed.check  reads a string literal that holds a line continuation
+  #                (a backslash and a LineTerminatorSequence), which the
+  #                escape map cannot express, where it stands, so every
+  #                row, column and offset after it is the source's own.
   #   text.check   rejects unquoted text that cannot start a valid
   #                JSON5 IdentifierName AND is not a registered value
   #                keyword or regex-matched number.
@@ -150,8 +153,12 @@ const grammarText = `
     }
   }
 
-  # JSON5 strings: single or double quote, with ES5.1 escapes plus line
-  # continuations (backslash + line terminator produces an empty string).
+  # JSON5 strings: single or double quote, with ES5.1 escapes. A line
+  # continuation (backslash + LineTerminatorSequence, which produces the
+  # empty string) has no entry here: an entry is keyed by one character,
+  # which cannot spell CRLF, and the TypeScript and Go lexers take an
+  # empty replacement as no entry at all. A string holding one is read by
+  # fixed.check instead.
   options: string: {
     lex: true
     check: '@string-check'
@@ -171,11 +178,6 @@ const grammarText = `
       '\`': '\`'
       '\\\\': '\\\\'
       '/': '/'
-      # JSON5 line continuation: backslash + LineTerminatorSequence.
-      '\\n': ''
-      '\\r': ''
-      '\\u2028': ''
-      '\\u2029': ''
     }
     allowUnknown: true
   }
@@ -229,120 +231,202 @@ const grammarText = `
 `
 // --- END EMBEDDED json5-grammar.jsonic ---
 
-// LineTerminator test, shared by the continuation stripper.
+// LineTerminator test, shared by the string scans below.
 const isLineTerminator = (ch: string | undefined) =>
   '\n' === ch || '\r' === ch || '\u2028' === ch || '\u2029' === ch
 
-// Remove JSON5 string line continuations — a backslash immediately followed
-// by a LineTerminatorSequence (CRLF, CR, LF, LS, PS) produces nothing,
-// letting a string span lines.
+const isDigit = (ch: string | undefined) =>
+  undefined !== ch && '0' <= ch && ch <= '9'
+
+const hex2Re = /^[0-9A-Fa-f]{2}$/
+
+// What the string literal opening at `start` holds, walked the way the
+// string check has always walked it: an escape takes the character after
+// it along, and the walk ends at the closing quote or the end of the
+// source. The answer is a set of these two bits.
 //
-// A LineContinuation is only part of the STRING grammar, so the scan below
-// tracks lexical context and rewrites inside string literals only. A blanket
-// `src.replace(...)` would also splice out a backslash-newline sitting in a
-// comment (extending the comment over the following line, swallowing real
-// tokens) or between tokens (silently accepting `[1,\<LF>2]`).
-function stripLineContinuations(
-  src: string,
-  quoteMap: Record<string, any>,
-  escChar: string,
-  hashComment: boolean,
-): string {
-  if (!src.includes(escChar)) return src
-  let out = ''
-  let i = 0
-  const len = src.length
-  while (i < len) {
+//   FORBIDDEN  an escape ES5.1 refuses (`\1`..`\9`, `\0` before a digit,
+//              `\u{`): the string is refused at its quote
+//   CONTINUED  a LineContinuation: the fixed check reads the string
+//
+// A string with neither is the engine's.
+const FORBIDDEN = 1
+const CONTINUED = 2
+
+function scanString(src: string, start: number, escChar: string): number {
+  const quote = src[start]
+  let found = 0
+  for (let i = start + 1; i < src.length; i++) {
     const c = src[i]
-
-    // Comments are copied through verbatim.
-    if ('/' === c && '/' === src[i + 1]) {
-      let j = i + 2
-      while (j < len && !isLineTerminator(src[j])) j++
-      out += src.slice(i, j)
-      i = j
-      continue
+    if (c === quote) break
+    if (c !== escChar) continue
+    const n = src[i + 1]
+    if (undefined === n) break
+    if (
+      ('0' === n && isDigit(src[i + 2])) ||
+      ('1' <= n && n <= '9') ||
+      ('u' === n && '{' === src[i + 2])
+    ) {
+      found |= FORBIDDEN
+    } else if (isLineTerminator(n)) {
+      found |= CONTINUED
     }
-    if (hashComment && '#' === c) {
-      let j = i + 1
-      while (j < len && !isLineTerminator(src[j])) j++
-      out += src.slice(i, j)
-      i = j
-      continue
-    }
-    if ('/' === c && '*' === src[i + 1]) {
-      const end = src.indexOf('*/', i + 2)
-      const j = 0 > end ? len : end + 2
-      out += src.slice(i, j)
-      i = j
-      continue
-    }
-
-    // Inside a string literal: drop escape+LineTerminatorSequence, copy any
-    // other escape pair whole so an escaped quote does not end the scan.
-    if (quoteMap[c]) {
-      const quote = c
-      out += c
-      i++
-      while (i < len) {
-        const d = src[i]
-        if (d === escChar) {
-          const n = src[i + 1]
-          if ('\r' === n && '\n' === src[i + 2]) {
-            i += 3
-            continue
-          }
-          if (isLineTerminator(n)) {
-            i += 2
-            continue
-          }
-          if (undefined === n) {
-            out += d
-            i++
-            break
-          }
-          out += d + n
-          i += 2
-          continue
-        }
-        out += d
-        i++
-        if (d === quote) break
-      }
-      continue
-    }
-
-    out += c
     i++
   }
-  return out
+  return found
+}
+
+// Read the string literal at the lexer's point, which holds a JSON5
+// LineContinuation: a backslash and the LineTerminatorSequence after it
+// (CRLF counting as one), which adds nothing to the value.
+//
+// The engine cannot read one. Its escape map is keyed by the single
+// character after the backslash, the lexer drops an entry whose
+// replacement is the empty string, and its string matcher never counts a
+// row inside an escape. Removing the continuations from the source before
+// lexing, as this plugin used to, made the value right and every later
+// position wrong: each one took a line out of the text the lexer counted,
+// so every token and every error after it was reported that many rows
+// early (tabnas/json5#80). The removal also completed a partial escape
+// across the line break, reading `\x4`, a continuation and `b` as `\x4b`.
+//
+// So this reads the string where it stands, the way the engine's string
+// matcher reads every other one: the same escape map, the same `\x` and
+// `\u` forms, the same errors on the same characters. Nothing is
+// rewritten, so every row, column and offset after the string is the
+// source's own. A continuation ends a row when its terminator is one of
+// the engine's row characters (LF, LS and PS, so CRLF too); a lone CR is
+// not one, inside a string or out, and counts as the two columns the
+// source has. The grammar declares no `string.replace`, so there is no
+// replace step.
+function readContinuedString(lex: Lex): any {
+  const pnt: any = (lex as any).pnt
+  const src: string = (lex as any).src
+  const cfg: any = (lex as any).cfg
+  const scfg = cfg.string
+  const lineChars = cfg.line.chars
+  const rowChars = cfg.line.rowChars
+  const start = pnt.sI
+  const quote = src[start]
+  const multiLine = !!scfg.multiChars[quote]
+
+  let sI = start + 1
+  let rI = pnt.rI
+  let cI = pnt.cI + 1
+  let val = ''
+
+  // An error inside the string is sited where it stands: on the offending
+  // character, or on the backslash of a malformed escape.
+  const bad = (why: string, at: number, atCI: number, end: number) => {
+    pnt.sI = at
+    pnt.rI = rI
+    pnt.cI = atCI
+    return (lex as any).bad(why, at, end)
+  }
+
+  while (sI < src.length) {
+    const c = src[sI]
+
+    if (c === quote) {
+      const token = (lex as any).token(
+        '#ST', val, src.substring(start, sI + 1), pnt)
+      pnt.sI = sI + 1
+      pnt.rI = rI
+      pnt.cI = cI + 1
+      return token
+    }
+
+    if (c === scfg.escChar) {
+      const n = src[sI + 1]
+      if (undefined === n) break
+
+      if (isLineTerminator(n)) {
+        const crlf = '\r' === n && '\n' === src[sI + 2]
+        sI += crlf ? 3 : 2
+        if (rowChars[crlf ? '\n' : n]) {
+          rI++
+          cI = 1
+        } else {
+          cI += 2
+        }
+        continue
+      }
+
+      const es = scfg.escMap[n]
+      if (null != es) {
+        val += es
+        sI += 2
+        cI += 2
+        continue
+      }
+
+      if ('x' === n && !scfg.escapeStrict) {
+        const hex = src.substring(sI + 2, sI + 4)
+        if (!hex2Re.test(hex)) return bad('invalid_ascii', sI, cI, sI + 4)
+        val += String.fromCharCode(parseInt(hex, 16))
+        sI += 4
+        cI += 4
+        continue
+      }
+
+      if ('u' === n) {
+        const hex = src.substring(sI + 2, sI + 6)
+        if (!hex4Re.test(hex)) return bad('invalid_unicode', sI, cI, sI + 6)
+        val += String.fromCharCode(parseInt(hex, 16))
+        sI += 6
+        cI += 6
+        continue
+      }
+
+      if (!scfg.allowUnknown) return bad('unexpected', sI + 1, cI + 1, sI + 2)
+      val += n
+      sI += 2
+      cI += 2
+      continue
+    }
+
+    if (multiLine && lineChars[c]) {
+      val += c
+      sI++
+      if (rowChars[c]) rI++
+      cI = 1
+      continue
+    }
+
+    if (c.charCodeAt(0) < 32 && !(scfg.allowControl && !lineChars[c])) {
+      return bad('unprintable', sI, cI, sI + 1)
+    }
+
+    val += c
+    sI++
+    cI++
+  }
+
+  // Unterminated: sited on the opening quote, as the engine sites it.
+  return (lex as any).bad('unterminated_string', start, src.length)
 }
 
 // Plugin implementation.
 const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
-  // fixedCheck runs before every lexer step but gates its own work so the
-  // preprocessing happens exactly once per parse. It strips the string line
-  // continuations. This can't be done with the escape map: the lexer drops
-  // any escape entry whose replacement is the empty string, so the
-  // continuation is removed here at the source level instead.
+  // fixedCheck runs before every lexer step, ahead of every matcher. A
+  // string that holds a LineContinuation is its own: at the string's
+  // opening quote it reads it (readContinuedString) and hands the engine
+  // the finished token. Such a string never reaches stringCheck, so one
+  // that also holds a forbidden escape is refused here instead, the same
+  // way and at the same place: `unexpected`, on the quote. Anywhere else
+  // fixedCheck does nothing, and every other string is the engine's.
   const fixedCheck = (lex: Lex) => {
-    const ctx: any = (lex as any).ctx
-    if (!ctx || !ctx.u) return
-    if (ctx.u.json5_preprocessed) return
-    ctx.u.json5_preprocessed = true
-    const src = String((lex as any).src)
-    const lcfg: any = (lex as any).cfg
-    const rewritten = stripLineContinuations(
-      src,
-      lcfg?.string?.quoteMap || {},
-      lcfg?.string?.escChar || '\\',
-      !!lcfg?.comment?.def?.hash?.lex,
-    )
-    if (rewritten !== src) {
-      ;(lex as any).src = rewritten
-      const pnt: any = (lex as any).pnt
-      if (pnt) pnt.len = rewritten.length
+    const pnt: any = (lex as any).pnt
+    const src: string = (lex as any).src
+    const scfg: any = (lex as any).cfg?.string
+    if (!pnt || !scfg?.quoteMap?.[src[pnt.sI]]) return undefined
+    const found = scanString(src, pnt.sI, scfg.escChar || '\\')
+    if (!(found & CONTINUED)) return undefined
+    if (found & FORBIDDEN) {
+      const token = (lex as any).bad('unexpected', pnt.sI, pnt.sI + 1)
+      return { done: true, token }
     }
+    return { done: true, token: readContinuedString(lex) }
   }
 
   // textCheck rejects text tokens that cannot begin a valid JSON5
@@ -387,31 +471,14 @@ const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
   // Returning { done: true, token: undefined } halts lexing at this
   // position so the parser raises "unexpected character" — the same shape
   // textCheck uses.
-  const isDigit = (ch: string | undefined) =>
-    undefined !== ch && '0' <= ch && ch <= '9'
-
   const stringCheck = (lex: Lex) => {
     const pnt: any = (lex as any).pnt
     const src: string = (lex as any).src
     if (!pnt || pnt.sI >= src.length) return undefined
     const cfg: any = (lex as any).cfg
-    const quote = src[pnt.sI]
-    if (!cfg?.string?.quoteMap?.[quote]) return undefined
-    const esc = cfg.string.escChar || '\\'
-    for (let i = pnt.sI + 1; i < src.length; i++) {
-      const c = src[i]
-      if (c === quote) break
-      if (c !== esc) continue
-      const n = src[i + 1]
-      if (undefined === n) break
-      if (
-        ('0' === n && isDigit(src[i + 2])) ||
-        ('1' <= n && n <= '9') ||
-        ('u' === n && '{' === src[i + 2])
-      ) {
-        return { done: true, token: undefined }
-      }
-      i++
+    if (!cfg?.string?.quoteMap?.[src[pnt.sI]]) return undefined
+    if (scanString(src, pnt.sI, cfg.string.escChar || '\\') & FORBIDDEN) {
+      return { done: true, token: undefined }
     }
     return undefined
   }

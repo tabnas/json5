@@ -39,7 +39,10 @@
 
   # LexCheck hooks close the last gaps the built-in lexer has against
   # the JSON5 spec:
-  #   fixed.check  preprocesses backslash+CRLF inside strings.
+  #   fixed.check  reads a string literal that holds a line continuation
+  #                (a backslash and a LineTerminatorSequence), which the
+  #                escape map cannot express, where it stands, so every
+  #                row, column and offset after it is the source's own.
   #   text.check   rejects unquoted text that cannot start a valid
   #                JSON5 IdentifierName AND is not a registered value
   #                keyword or regex-matched number.
@@ -71,8 +74,12 @@
     }
   }
 
-  # JSON5 strings: single or double quote, with ES5.1 escapes plus line
-  # continuations (backslash + line terminator produces an empty string).
+  # JSON5 strings: single or double quote, with ES5.1 escapes. A line
+  # continuation (backslash + LineTerminatorSequence, which produces the
+  # empty string) has no entry here: an entry is keyed by one character,
+  # which cannot spell CRLF, and the TypeScript and Go lexers take an
+  # empty replacement as no entry at all. A string holding one is read by
+  # fixed.check instead.
   options: string: {
     lex: true
     check: '@string-check'
@@ -92,11 +99,6 @@
       '`': '`'
       '\\': '\\'
       '/': '/'
-      # JSON5 line continuation: backslash + LineTerminatorSequence.
-      '\n': ''
-      '\r': ''
-      '\u2028': ''
-      '\u2029': ''
     }
     allowUnknown: true
   }

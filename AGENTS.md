@@ -358,36 +358,87 @@ forms) resolve against the `ref` map.
 
 ## Repo-specific gotchas
 
-### String line continuations are stripped at the source level (NOT via the escape map)
+### String line continuations are read by the fixed check, never rewritten out of the source
 
 A JSON5 string line continuation — a backslash immediately followed by a
 LineTerminatorSequence (`CRLF`, `CR`, `LF`, `U+2028` LS, `U+2029` PS) —
-produces an empty string so the string spans lines. This **cannot** be
-done through the escape map: the lexer drops any escape entry whose
-replacement is the empty string. So every runtime strips continuations
-from the source before lexing. TypeScript and Go do it in a one-time
-per-parse rewrite driven by the `fixed.check` hook (`fixedCheck`); Rust
-cannot, because a lexer check there cannot replace the source it is
-lexing, so the rewrite lives in the package-level `parse_with` and the
-hook is a registration that only satisfies the grammar's reference.
+produces an empty string so the string spans lines. The escape map
+**cannot** read one. An entry is keyed by the one character after the
+backslash, so no entry can spell `CRLF`; the TypeScript and Go lexers
+take an entry whose replacement is the empty string as no entry at all;
+and their string matchers never count a row inside an escape. In Rust an
+entry could read the four one-character forms (that lexer honours an
+empty replacement and its advance counts the row), and still not `CRLF`.
 
-The strip is **context-aware** (`stripLineContinuations`, mirrored in
-`ts/src/json5.ts`, `go/json5.go` and `rs/src/lib.rs`): a `LineContinuation`
-exists only in
-the STRING grammar, so the scan copies comments (`//`, `/* */`, and `#`
-when `hashComment` is on) and unquoted text through untouched and only
-rewrites inside a string literal. Do **not** "simplify" this back into a
-blanket `src.replace(...)` / `strings.NewReplacer(...)`: that also
-splices out a backslash-newline sitting in a `//` comment (extending the
-comment over the next line and swallowing real tokens, so `// c\<LF>1`
-loses its `1`) and one sitting between tokens (silently accepting
-`[1,\<LF>2]`). Both are covered by fixtures in
-`test/spec/strings.tsv` and `test/spec/comments.tsv`.
+So no runtime asks it to. In all three, the `fixed.check` hook
+(`fixedCheck`, `read_continued_string` in Rust), which runs before every
+lexer step ahead of every matcher, takes every string literal that holds
+a continuation: at the opening quote it scans the string
+(`scanString` / `scanStringEscapes` / `scan_string_escapes`, the same
+walk the string check makes) and, if it finds one, reads the whole
+string itself and hands the engine the finished `#ST` token, or the
+error token, sited where the engine would site it. Every other string is
+the engine's. The grammar carries no escape entry for a continuation.
 
-Inside the scan, `CRLF` is matched before a lone `CR`/`LF`; keep that
-ordering. Never write a literal `U+2028`/`U+2029` into either source
-file — in JS source those are line breaks. Use `'\u2028'` escapes (the
-TS helper `isLineTerminator` does).
+**Nothing is rewritten, and that is the point.** Until tabnas/json5#80
+every runtime removed continuations from the source before lexing
+(TypeScript and Go in a one-time rewrite in the fixed check, Rust in
+`parse_with`). The value came out right and every later position came
+out wrong: each continuation took a line out of the text the lexer
+counted, so every token and every error after it was reported that many
+rows early, on the column of the shortened line. A consumer that reads
+source positions off the lexer (aless's `--where`, its error locations)
+was off by a row per continuation. The removal also completed a partial
+escape across the line break, so `'\x4\<LF>b'` read as `\x4b`, `"K"`,
+where ES5 refuses it. Measured when the readers landed: the TypeScript
+one agreed with `eval`, the corpus oracle, on 20,000 random string
+literals, and Go and Rust agreed with TypeScript on every value of a
+random cross-runtime run. Reading the string where it stands keeps every
+row, column and absolute offset after it the source's own (`pos`
+included), and Rust's `Tabnas::parse` now reads a `CRLF` continuation
+exactly as `parse_with` does.
+
+The reader mirrors its engine's string matcher: the same escape map read
+from the live config (Rust copies the document's at install, since a
+lexer check cannot read the live options), the same `\x` and `\u` forms,
+the same surrogate pairing, and the same error codes on the same
+characters: an escape error on the backslash, `unprintable` on the
+offending character, `unterminated_string` on the opening quote. Each
+runtime counts columns its own engine's way, so the astral-column
+divergence holds here as everywhere. Three choices are deliberate:
+
+- A continuation ends a row when its terminator is one of the engine's
+  row characters (LF, LS, PS, so `CRLF` too). A lone CR is not one,
+  inside a string or out, and counts as the two columns the source has;
+  that is what the Rust engine's advance does, and the TypeScript and Go
+  readers match it.
+- A continuation is no code unit, so it holds a surrogate pair open:
+  `"\uD83D\<LF>\uDE00"` is one character, as the source text says. This
+  is why Rust reads every continuation string itself rather than only
+  one with a `CRLF`: its escape map ends a pending pair at each of the
+  other four.
+- A continuation string that also holds a forbidden escape (`\1`, `\0`
+  before a digit, `\u{`) is refused by the fixed check, `unexpected` on
+  the quote, exactly as the string check refuses any other such string.
+  It must not be left to the string check: in Go, jsonic's own
+  `jsonic$unprintable` pre-scan runs between the two, reads `\` and CR as
+  one escape and then refuses the LF after them.
+
+Context comes from the lexer, not from a scan of the source: the fixed
+check only ever sees a quote that the lexer has reached as the start of
+a token, so a quote inside a comment, or in unquoted text, opens nothing.
+Do **not** bring back a source rewrite, context-aware or not, and do not
+"simplify" the readers into a blanket `src.replace(...)` /
+`strings.NewReplacer(...)`: a blanket replace also splices out a
+backslash-newline in a `//` comment (swallowing the next line, so
+`// c\<LF>1` loses its `1`) and one between tokens (silently accepting
+`[1,\<LF>2]`). The rows that pin all of this, positions included
+(`ERROR:<code>@<row>:<col>`), are in `test/spec/strings.tsv` and
+`test/spec/comments.tsv`.
+
+Never write a literal `U+2028`/`U+2029` into either source file — in JS
+source those are line breaks. Use `'\u2028'` escapes (the TS helper
+`isLineTerminator` does).
 
 ### Unquoted keys are DECODED, not just validated
 
@@ -512,8 +563,8 @@ code under the `infinity` option (default on).
   handles an empty source before any pluggable hook, so the guard lives
   in the package-level `tabnasjson5.Parse(j, src)` wrapper instead. Rust:
   the engine's `parser.start` hook REPLACES the parse rather than
-  preceding it, so the guard, and the line-continuation strip, live in
-  the package-level `tabnas_json5::parse_with(&parser, src)`.)
+  preceding it, so the guard lives in the package-level
+  `tabnas_json5::parse_with(&parser, src)`.)
 - `textCheck` (wired as `text.check`) halts lexing on unquoted text that
   is neither a valid IdentifierName start nor a registered value keyword/
   regex, raising "unexpected character".

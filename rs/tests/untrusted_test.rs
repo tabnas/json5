@@ -157,8 +157,8 @@ fn very_long_well_formed_input_parses_to_the_right_value() {
         other => panic!("long key: {other:?}"),
     }
 
-    // 200,000 line continuations collapse to the empty string, and the
-    // rewrite that strips them does not go quadratic doing it.
+    // 200,000 line continuations collapse to the empty string, and reading
+    // them does not go quadratic.
     match parse_with(&j, &format!("\"{}\"", "\\\n".repeat(200_000))) {
         Ok(tabnas::Value::String(got)) => assert!(got.is_empty(), "{} chars", got.len()),
         other => panic!("continuations: {other:?}"),

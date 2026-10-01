@@ -30,8 +30,8 @@ input	expected	opts
 # A digit after a COMPLETED escape is just a character.
 "\\u00410"	"A0"
 "\\n1"	"\n1"
-# A LineContinuation belongs to the STRING grammar only: it is stripped
-# inside a string literal, and is not a token separator anywhere else.
+# A LineContinuation belongs to the STRING grammar only: it adds nothing to
+# a string literal's value, and is not a token separator anywhere else.
 ["a\\\nb"]	["ab"]
 ["a\\\r\nb"]	["ab"]
 ["x\\\ny","p\\\nq"]	["xy","pq"]
@@ -39,6 +39,42 @@ input	expected	opts
 [1,\\\n2]	ERROR
 {a:\\\n1}	ERROR
 \\\n1	ERROR
+# The string spans the lines it is written on, so a continuation keeps the
+# row and column of every later token and every error: the position cells
+# below pin both, `ERROR:<code>@<row>:<col>` (tabnas/json5#80). The engine
+# counts a row at LF, LS and PS, so at CRLF too, and never at a lone CR,
+# inside a string or out. The first three rows are the issue's table, the
+# third its control.
+['a\\\nb',\n  @]	ERROR:unexpected@3:3
+['a\\\r\nb',\r\n  @]	ERROR:unexpected@3:3
+['ab',\n  @]	ERROR:unexpected@2:3
+['a\\\nb', @]	ERROR:unexpected@2:5
+['a\\\r\nb', @]	ERROR:unexpected@2:5
+['a\\\rb', @]	ERROR:unexpected@1:10
+['a\\ b', @]	ERROR:unexpected@2:5
+['a\\ b', @]	ERROR:unexpected@2:5
+"a\\\rb"	"ab"
+"a\\ b"	"ab"
+"a\\ b"	"ab"
+[`a\\\r\nb\nc`, @]	ERROR:unexpected@3:5	{"backtickString":true}
+`a\\\r\nb\nc`	"ab\nc"	{"backtickString":true}
+# Only an odd run of backslashes escapes the line break: two before a CRLF
+# are an escaped backslash and then a real line break, which a string may
+# not hold; three are an escaped backslash and a continuation.
+["a\\\\\r\nb"]	ERROR:unprintable@1:6
+["a\\\\\\\r\nb"]	["a\\b"]
+["a\\\\\\\r\nb", @]	ERROR:unexpected@2:5
+# A continuation is an escape of its own, so it cannot complete a \x or \u
+# escape it interrupts, and it is no code unit, so the two halves of a
+# surrogate pair written around one are still one character. An error
+# after one is sited where it stands, and one does not hide a forbidden
+# escape from the check that refuses it.
+"\\x4\\\nb"	ERROR:invalid_ascii@1:2
+"\\u00\\\r\n41"	ERROR:invalid_unicode@1:2
+"\\uD83D\\\n\\uDE00"	"\ud83d\ude00"
+['a\\\nb\\x4Z']	ERROR:invalid_ascii@2:2
+['a\\\r\nb\tc']	ERROR:unprintable@2:2
+"\\1\\\r\n"	ERROR:unexpected@1:1
 # --- Retired divergences, now agreed by both ports -----------------------
 # These nine inputs stood in test/divergent.tsv until 2026-08-20, when the
 # engine repairs landed and every row went red. They are here so both
