@@ -8,7 +8,7 @@ and this file only covers what is specific to this crate.
 
 | Path | |
 |---|---|
-| `src/lib.rs` | the whole port: `Json5Options`, the embedded grammar text, the lexer checks, the value transforms, the pair-key validator, `json5`, `plugin`, `make`, `make_with`, `parse_with`, `parse` |
+| `src/lib.rs` | the whole port: `Json5Options`, the embedded grammar text, the lexer checks, the value transforms, the pair-key validator, `json5`, `plugin`, `make`, `make_with`, `parse_with`, `parse`, and the translation part `manifest_text`, `include_str!` of the copy in `translate/` |
 | `tests/parity_test.rs` | every `../test/spec/*.tsv` fixture through `tabnas_support::Runner`, a fresh parser per row for the `opts` column, plus two tripwires: every fixture has the standard shape, and the row CENSUS is the one recorded |
 | `tests/suite_test.rs` | the vendored `../test/json5-tests` corpus against `../test/json5-tests-expected.json`, both halves, plus the derived truncation and trailing probes |
 | `tests/divergent_test.rs` | the register `../test/divergent.tsv`, `rust` column |
@@ -17,6 +17,8 @@ and this file only covers what is specific to this crate.
 | `tests/untrusted_test.rs` | playbook section 7: deep nesting, very long input, unterminated constructs, control characters, wide containers |
 | `tests/perf_test.rs` | reuse of one instance must beat rebuilding per parse, and cost must grow about linearly with input size |
 | `tests/version_test.rs` | Cargo.toml == `VERSION` == ts/package.json |
+| `tests/translate_test.rs` | the translation part: the embedded manifest is `../tabnas.plugin.json`, and its `translate` object reads and writes a tree through the `json` render alchemy carries, and its loss lines are sentences |
+| `translate/` | the crate's copy of `../tabnas.plugin.json` (as `manifest.json`), which a packaged crate needs; `tests/translate_test.rs` holds it to the file |
 | `tests/common/mod.rs` | shared helpers: spec dir, the hand-written value conversion, the `opts` reader, the register outcome |
 | `README.md` | the crate front page, prose-gated; its `rust` fences are doctests of this crate (see below) |
 
