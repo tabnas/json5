@@ -803,3 +803,6 @@ const VERSION = '0.5.9'
 export { VERSION, Json5 }
 
 export type { Json5Options }
+
+export { translate } from './translate'
+export type { TranslationPart, TranslationParts } from './translate'

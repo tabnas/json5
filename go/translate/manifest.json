@@ -1,0 +1,52 @@
+{
+  "$schema": "https://tabnas.dev/schema/plugin.schema.json",
+  "name": "@tabnas/json5",
+  "go": "github.com/tabnas/json5/go",
+  "description": "JSON5 parsing for the tabnas engine.",
+  "base": "@tabnas/jsonic",
+  "engine": "@tabnas/parser",
+  "grammar": "json5-grammar.jsonic",
+  "extensions": [
+    ".json5"
+  ],
+  "languageId": "json5",
+  "pluginKind": "grammar",
+  "grammarKind": "closure",
+  "lexStream": "clean",
+  "syncGroups": [
+    "end",
+    "comma",
+    "close",
+    "sync"
+  ],
+  "specDir": "test/spec",
+  "clib": {
+    "dir": "go/clib",
+    "library": "libtabnasjson5",
+    "abi": "v1",
+    "errorCodes": [
+      "usage",
+      "grammar",
+      "handle",
+      "internal"
+    ]
+  },
+  "errorCodes": [
+    "json5_empty",
+    "json5_no_value"
+  ],
+  "docs": "https://tabnas.dev/docs/packages",
+  "repository": "https://github.com/tabnas/json5",
+  "versionSource": "ts/package.json",
+  "translate": {
+    "reads": "tree",
+    "writes": "tree",
+    "render": "json",
+    "loss": [
+      "Comments are not kept.",
+      "Trailing commas are not kept.",
+      "Unquoted keys, single-quoted strings, hexadecimal numbers, leading and trailing decimal points, plus signs and line continuations are written in JSON's forms.",
+      "JSON has no spelling for Infinity or NaN, so a document holding a non-finite number fails to write."
+    ]
+  }
+}
