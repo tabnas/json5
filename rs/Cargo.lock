@@ -173,7 +173,7 @@ dependencies = [
 
 [[package]]
 name = "tabnas-jsonic"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "indexmap",
  "regex",
