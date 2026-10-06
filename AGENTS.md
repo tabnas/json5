@@ -85,7 +85,7 @@ TypeScript (canonical), a Go port and a Rust port.
 | Path | What it is |
 |---|---|
 | [`ts/`](ts/) | **Canonical** TypeScript implementation — the `@tabnas/json5` package. Plugin in [`ts/src/json5.ts`](ts/src/json5.ts). Imports the engine as `@tabnas/parser` and the base grammar as `@tabnas/jsonic`. |
-| [`go/`](go/) | Go port — `github.com/tabnas/json5/go`. Plugin in [`go/json5.go`](go/json5.go) (exports `Json5`, `Defaults`, `Parse`, `VERSION`). Requires `github.com/tabnas/jsonic/go` and `github.com/tabnas/support/go`; it carries NO `replace`, so the sibling checkouts are wired by a `go.work` kept outside every repo. |
+| [`go/`](go/) | Go port — `github.com/tabnas/json5/go`. Plugin in [`go/json5.go`](go/json5.go) (exports `Json5`, `Defaults`, `Parse`, `VERSION`). Requires `github.com/tabnas/jsonic/go`, `github.com/tabnas/parser/go` and `github.com/tabnas/support/go`; it carries NO `replace`, so the sibling checkouts are wired by a `go.work` kept outside every repo. |
 | [`rs/`](rs/) | Rust port — the `tabnas-json5` crate (library `tabnas_json5`, `pub const VERSION` in `rs/src/lib.rs`). Plugin `json5` / `plugin()`, `Json5Options`, `make` / `make_with`, and `parse_with` / `parse` (the counterpart of Go's `Parse`). Depends on the `tabnas` and `tabnas-jsonic` crates by **path** (sibling checkouts of `parser`, `jsonic` and, through jsonic, `json`), and on `tabnas-support` for the fixtures. Library only. See [`rs/AGENTS.md`](rs/AGENTS.md). |
 | [`tabnas.plugin.json`](tabnas.plugin.json) | The plugin manifest, with the format's **translation part**: its `translate` object says JSON5 reads as a tree and writes from one through the `json` render [alchemy](https://github.com/tabnas/alchemy) carries, and its `loss` lines, which a host prints verbatim, say what that render does not keep (comments, trailing commas, JSON5's own spellings, and the non-finite numbers JSON cannot write). The Rust crate embeds a byte-identical copy, `rs/translate/manifest.json`, as `manifest_text()`, and `rs/tests/translate_test.rs` holds the copy to the file: change the manifest at the root, then copy it there. |
 | [`json5-grammar.jsonic`](json5-grammar.jsonic) | The grammar, **source of truth for all three runtimes**. Embedded verbatim into each source file. |
@@ -117,14 +117,14 @@ publish tagged releases):
   `debug.model()` test in this repo — see below). Read the manifest before
   believing any statement about how a sibling resolves here: a `file:`
   entry is local wiring and must not be committed.
-- Go: `go/go.mod` requires `github.com/tabnas/jsonic/go` and
-  `github.com/tabnas/support/go`, with `github.com/tabnas/json/go` and
-  `github.com/tabnas/parser/go` indirect. It carries **no `replace`**, and
+- Go: `go/go.mod` requires `github.com/tabnas/jsonic/go`,
+  `github.com/tabnas/parser/go` and `github.com/tabnas/support/go`, with
+  `github.com/tabnas/json/go` indirect. It carries **no `replace`**, and
   it must not: the sibling checkouts are wired by a `go.work` kept one
   level up, outside every repo, so nothing tracks it (`admin/scripts/link.sh`
-  writes one, and CI does the same). `json5.go` imports `jsonic`, not
-  `parser`, directly, because the Go jsonic package re-exports the engine
-  types (`jsonic.Jsonic`, `jsonic.AltSpec`, `jsonic.Tin`, …).
+  writes one, and CI does the same). `json5.go` imports the engine as
+  `tabnas` for the engine's types (`tabnas.Tabnas`, `tabnas.AltSpec`,
+  `tabnas.Tin`, …), and `jsonic` only for jsonic's own `jsonic.Make`.
 - Rust: `rs/Cargo.toml` takes `tabnas = { package = "tabnas-parser", path = "../../parser/rs" }` and
   `tabnas-jsonic = { path = "../../jsonic/rs" }` (jsonic takes
   `tabnas-json = { path = "../../json/rs" }` in turn), plus
@@ -309,9 +309,10 @@ through to text. That is **fixed** in the engine — every runtime now yields
 `Infinity`, pinned by `test/spec/numbers.tsv`. The fixture needs an engine
 newer than `github.com/tabnas/parser/go v0.6.0`, which used to mean it
 passed with the workspace on and failed under `GOWORK=off`. That is no
-longer the state of this module: `go/go.mod` resolves
-`github.com/tabnas/parser/go v0.9.0` (indirect, through
-`github.com/tabnas/jsonic/go v0.6.6`), and that engine carries the fix.
+longer the state of this module: `go/go.mod` requires
+`github.com/tabnas/parser/go` directly, at a release that carries the fix
+(on 2026-09-22 it resolved `v0.9.0`, indirect through
+`github.com/tabnas/jsonic/go v0.6.6`).
 Measured 2026-09-22 from `go/`, with no `replace` in `go.mod`:
 `GOWORK=off go test -count=1 ./...` is green, the `1e400` and `-1e400` rows
 included.

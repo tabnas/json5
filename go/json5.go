@@ -29,6 +29,7 @@ import (
 	"unicode/utf8"
 
 	jsonic "github.com/tabnas/jsonic/go"
+	tabnas "github.com/tabnas/parser/go"
 )
 
 // VERSION is this module's version. It MUST equal ts/package.json
@@ -133,7 +134,7 @@ func scanStringEscapes(src string, start int, quote, esc rune) stringEscapes {
 // side of one is still a pair, as it is in the source text. The grammar
 // declares no string.replace, so there is no replace step. Mirrors
 // readContinuedString in ts/src/json5.ts.
-func readContinuedString(lex *jsonic.Lex, quote, esc rune) *jsonic.Token {
+func readContinuedString(lex *tabnas.Lex, quote, esc rune) *tabnas.Token {
 	cfg := lex.Config
 	p := lex.Cursor()
 	src := lex.Src
@@ -177,12 +178,12 @@ func readContinuedString(lex *jsonic.Lex, quote, esc rune) *jsonic.Token {
 
 	// An error inside the string is sited where it stands: on the offending
 	// character, or on the backslash of a malformed escape.
-	bad := func(why string, at, atCI, end int) *jsonic.Token {
+	bad := func(why string, at, atCI, end int) *tabnas.Token {
 		if end > len(src) {
 			end = len(src)
 		}
 		p.SI, p.RI, p.CI = at, rI, atCI
-		tkn := lex.Token("#BD", jsonic.TinBD, nil, src[at:end])
+		tkn := lex.Token("#BD", tabnas.TinBD, nil, src[at:end])
 		tkn.Why = why
 		return tkn
 	}
@@ -192,7 +193,7 @@ func readContinuedString(lex *jsonic.Lex, quote, esc rune) *jsonic.Token {
 
 		if c == quote {
 			flushHi()
-			tkn := lex.Token("#ST", jsonic.TinST, sb.String(), src[start:sI+size])
+			tkn := lex.Token("#ST", tabnas.TinST, sb.String(), src[start:sI+size])
 			p.SI, p.RI, p.CI = sI+size, rI, cI+1
 			return tkn
 		}
@@ -285,7 +286,7 @@ func readContinuedString(lex *jsonic.Lex, quote, esc rune) *jsonic.Token {
 	}
 
 	// Unterminated: sited on the opening quote, as the engine sites it.
-	tkn := lex.Token("#BD", jsonic.TinBD, nil, src[start:])
+	tkn := lex.Token("#BD", tabnas.TinBD, nil, src[start:])
 	tkn.Why = "unterminated_string"
 	return tkn
 }
@@ -507,7 +508,7 @@ func optBool(opts map[string]any, key string, fallback bool) bool {
 	return fallback
 }
 
-// plainMapNode recursively rewrites any *jsonic.OrderedMap object node
+// plainMapNode recursively rewrites any *tabnas.OrderedMap object node
 // into a plain map[string]any (dropping the now-tracked insertion order)
 // and copies []any elements, leaving all other values untouched. A parsed
 // jsonic object is an ordered *OrderedMap, but this plugin's grammar tree
@@ -516,7 +517,7 @@ func optBool(opts map[string]any, key string, fallback bool) bool {
 // ResolveFuncRefs) assert on plain map[string]any deeply — so flatten it.
 func plainMapNode(v any) any {
 	switch node := v.(type) {
-	case *jsonic.OrderedMap:
+	case *tabnas.OrderedMap:
 		m := make(map[string]any, len(node.Keys))
 		for _, k := range node.Keys {
 			m[k] = plainMapNode(node.Vals[k])
@@ -627,7 +628,7 @@ func decodeIdentifierName(s string) (string, bool) {
 // together with Defaults():
 //
 //	j.UseDefaults(tabnasjson5.Json5, tabnasjson5.Defaults())
-func Json5(j *jsonic.Jsonic, opts map[string]any) error {
+func Json5(j *tabnas.Tabnas, opts map[string]any) error {
 	infinity := optBool(opts, "infinity", true)
 	hex := optBool(opts, "hex", true)
 	hashComment := optBool(opts, "hashComment", false)
@@ -647,7 +648,7 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 	// also holds a forbidden escape is refused here instead, the same way
 	// and at the same place: unexpected, on the quote. Anywhere else
 	// fixedCheck does nothing, and every other string is the engine's.
-	fixedCheck := func(lex *jsonic.Lex) *jsonic.LexCheckResult {
+	fixedCheck := func(lex *tabnas.Lex) *tabnas.LexCheckResult {
 		p := lex.Cursor()
 		cfg := lex.Config
 		if p == nil || cfg == nil || p.SI >= len(lex.Src) {
@@ -666,18 +667,18 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 			return nil
 		}
 		if found.forbidden {
-			tkn := lex.Token("#BD", jsonic.TinBD, nil, lex.Src[p.SI:p.SI+qsize])
+			tkn := lex.Token("#BD", tabnas.TinBD, nil, lex.Src[p.SI:p.SI+qsize])
 			tkn.Why = "unexpected"
-			return &jsonic.LexCheckResult{Done: true, Token: tkn}
+			return &tabnas.LexCheckResult{Done: true, Token: tkn}
 		}
-		return &jsonic.LexCheckResult{Done: true, Token: readContinuedString(lex, quote, esc)}
+		return &tabnas.LexCheckResult{Done: true, Token: readContinuedString(lex, quote, esc)}
 	}
 
 	// textCheck rejects unquoted text tokens that cannot start a valid
 	// JSON5 IdentifierName AND are not a value-def keyword / regex match.
 	// Returning Done=true with a nil Token tells the lexer no token
 	// exists here, raising "unexpected character".
-	textCheck := func(lex *jsonic.Lex) *jsonic.LexCheckResult {
+	textCheck := func(lex *tabnas.Lex) *tabnas.LexCheckResult {
 		p := lex.Cursor()
 		if p == nil || p.SI >= len(lex.Src) {
 			return nil
@@ -702,7 +703,7 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 				}
 			}
 		}
-		return &jsonic.LexCheckResult{Done: true, Token: nil}
+		return &tabnas.LexCheckResult{Done: true, Token: nil}
 	}
 
 	// stringCheck rejects escape sequences that ECMAScript 5.1 — and hence
@@ -716,7 +717,7 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 	// Returning Done=true with a nil Token halts lexing at this position so
 	// the parser raises "unexpected character" — the same shape textCheck
 	// uses. Mirrors the TS stringCheck.
-	stringCheck := func(lex *jsonic.Lex) *jsonic.LexCheckResult {
+	stringCheck := func(lex *tabnas.Lex) *tabnas.LexCheckResult {
 		p := lex.Cursor()
 		if p == nil || p.SI >= len(lex.Src) {
 			return nil
@@ -734,7 +735,7 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 			esc = '\\'
 		}
 		if scanStringEscapes(lex.Src, p.SI, quote, esc).forbidden {
-			return &jsonic.LexCheckResult{Done: true, Token: nil}
+			return &tabnas.LexCheckResult{Done: true, Token: nil}
 		}
 		return nil
 	}
@@ -844,15 +845,15 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 		}
 	}
 
-	refs := map[jsonic.FuncRef]any{
-		"@fixed-check":            jsonic.LexCheck(fixedCheck),
-		"@text-check":             jsonic.LexCheck(textCheck),
-		"@string-check":           jsonic.LexCheck(stringCheck),
+	refs := map[tabnas.FuncRef]any{
+		"@fixed-check":            tabnas.LexCheck(fixedCheck),
+		"@text-check":             tabnas.LexCheck(textCheck),
+		"@string-check":           tabnas.LexCheck(stringCheck),
 		"@parse-trailing-dec-exp": func(m []string) any { return parseTrailingDecExp(m) },
 		"@parse-uppercase-hex":    func(m []string) any { return parseUppercaseHex(m) },
 	}
 
-	grammarDef := &jsonic.GrammarSpec{
+	grammarDef := &tabnas.GrammarSpec{
 		Ref:        refs,
 		OptionsMap: optionsMap,
 	}
@@ -892,8 +893,8 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 	// pre-built val/pair alts do not pick that up. Filter #TX from val
 	// alts and #NR from pair alts directly to make the restriction
 	// effective at parse time.
-	txTin := jsonic.TinTX
-	nrTin := jsonic.TinNR
+	txTin := tabnas.TinTX
+	nrTin := tabnas.TinNR
 	for _, rs := range j.RSM() {
 		if strictValue {
 			filterTinFromAlts(rs.OpenAlts(), txTin, "val")
@@ -909,12 +910,12 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 	//     whose source text is not a valid JSON5 IdentifierName.
 	//   - val.Open loses its `#ZZ jsonic` alt (when requireValue is
 	//     set) so a source containing only comments errors out.
-	j.Rule("pair", func(rs *jsonic.RuleSpec, _ *jsonic.Parser) {
+	j.Rule("pair", func(rs *tabnas.RuleSpec, _ *tabnas.Parser) {
 		filtered := dropAltsByTag(rs.OpenAlts(), "comma,jsonic")
 		rs.ClearOpen()
 		rs.AddOpen(filtered...)
-		rs.AddAO(func(r *jsonic.Rule, ctx *jsonic.Context) {
-			if r.O0 == nil || r.O0.Tin != jsonic.TinTX {
+		rs.AddAO(func(r *tabnas.Rule, ctx *tabnas.Context) {
+			if r.O0 == nil || r.O0.Tin != tabnas.TinTX {
 				return
 			}
 			name, ok := decodeIdentifierName(r.O0.Src)
@@ -936,7 +937,7 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 	})
 
 	if requireValue {
-		j.Rule("val", func(rs *jsonic.RuleSpec, _ *jsonic.Parser) {
+		j.Rule("val", func(rs *tabnas.RuleSpec, _ *tabnas.Parser) {
 			filtered := dropRootZZAlt(rs.OpenAlts())
 			rs.ClearOpen()
 			rs.AddOpen(filtered...)
@@ -956,7 +957,7 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 // Parse parses a JSON5 source string with a Json5-configured instance.
 // It is the Go counterpart of the TS plugin's wrapped `parser.start`:
 // when the requireValue option is set (the default) and the source is
-// empty, it returns a *jsonic.JsonicError with code "json5_empty"
+// empty, it returns a *tabnas.TabnasError with code "json5_empty"
 // ("JSON5 input must contain a value"), exactly as the TS plugin
 // throws. All other input delegates to j.Parse.
 //
@@ -965,7 +966,7 @@ func Json5(j *jsonic.Jsonic, opts map[string]any) error {
 // custom Options.Parser.Start is only invoked for non-empty input), so
 // with requireValue a direct j.Parse("") still fails, but with the
 // engine's generic "unexpected" error rather than "json5_empty".
-func Parse(j *jsonic.Jsonic, src string) (any, error) {
+func Parse(j *tabnas.Tabnas, src string) (any, error) {
 	if rv, ok := j.Decoration(requireValueMark).(bool); ok && rv {
 		if src == "" {
 			return nil, json5ValueError(j, "json5_empty")
@@ -1071,8 +1072,8 @@ func isJSON5LineEnd(c rune) bool {
 // json5ValueError builds a requireValue error (json5_empty or
 // json5_no_value) from the message and hint templates the grammar
 // registers on the instance config, so the wording has one source.
-func json5ValueError(j *jsonic.Jsonic, code string) error {
-	e := &jsonic.JsonicError{
+func json5ValueError(j *tabnas.Tabnas, code string) error {
+	e := &tabnas.TabnasError{
 		Code:   code,
 		Detail: "JSON5 input must contain a value",
 		Row:    1,
@@ -1089,7 +1090,7 @@ func json5ValueError(j *jsonic.Jsonic, code string) error {
 
 // filterTinFromAlts removes `tin` from the Tin-set at each slot of every
 // alt tagged with `requiredTag`.
-func filterTinFromAlts(alts []*jsonic.AltSpec, tin jsonic.Tin, requiredTag string) {
+func filterTinFromAlts(alts []*tabnas.AltSpec, tin tabnas.Tin, requiredTag string) {
 	for _, alt := range alts {
 		if alt == nil || !tagContains(alt.G, requiredTag) {
 			continue
@@ -1106,9 +1107,9 @@ func filterTinFromAlts(alts []*jsonic.AltSpec, tin jsonic.Tin, requiredTag strin
 	}
 }
 
-func dropAltsByTag(alts []*jsonic.AltSpec, requiredTags string) []*jsonic.AltSpec {
+func dropAltsByTag(alts []*tabnas.AltSpec, requiredTags string) []*tabnas.AltSpec {
 	required := strings.Split(requiredTags, ",")
-	result := make([]*jsonic.AltSpec, 0, len(alts))
+	result := make([]*tabnas.AltSpec, 0, len(alts))
 	for _, alt := range alts {
 		if alt == nil {
 			continue
@@ -1128,8 +1129,8 @@ func dropAltsByTag(alts []*jsonic.AltSpec, requiredTags string) []*jsonic.AltSpe
 	return result
 }
 
-func dropRootZZAlt(alts []*jsonic.AltSpec) []*jsonic.AltSpec {
-	result := make([]*jsonic.AltSpec, 0, len(alts))
+func dropRootZZAlt(alts []*tabnas.AltSpec) []*tabnas.AltSpec {
+	result := make([]*tabnas.AltSpec, 0, len(alts))
 	for _, alt := range alts {
 		if alt != nil && isZZJsonicAlt(alt) {
 			continue
@@ -1139,7 +1140,7 @@ func dropRootZZAlt(alts []*jsonic.AltSpec) []*jsonic.AltSpec {
 	return result
 }
 
-func isZZJsonicAlt(alt *jsonic.AltSpec) bool {
+func isZZJsonicAlt(alt *tabnas.AltSpec) bool {
 	if !tagContains(alt.G, "jsonic") {
 		return false
 	}
@@ -1150,7 +1151,7 @@ func isZZJsonicAlt(alt *jsonic.AltSpec) bool {
 	if len(slot) != 1 {
 		return false
 	}
-	return slot[0] == jsonic.TinZZ
+	return slot[0] == tabnas.TinZZ
 }
 
 func tagContains(tags, want string) bool {
