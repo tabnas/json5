@@ -102,9 +102,9 @@ library plugin only.
 
 ## The tabnas engine dependency
 
-All three runtimes depend on the unpublished `@tabnas` siblings via a
-**sibling checkout** (the standard tabnas dev model until the packages
-publish tagged releases):
+TypeScript and Go resolve published `@tabnas` packages, from the npm
+registry and the Go module proxy, so a sibling checkout is optional local
+wiring there. Only Rust needs one:
 
 - TypeScript: `@tabnas/parser` and `@tabnas/jsonic` are declared as
   `peerDependencies` (`">=0"`) in `ts/package.json` and as `"*"`
@@ -133,9 +133,9 @@ publish tagged releases):
   `rs/Cargo.lock` is committed and `ci/rust/run.sh` checks it without
   `--locked`, exempting only the sibling crates' versions.
 
-Clone the siblings (`parser`, `jsonic`, `json`, `support`, plus
-`debug`/`railroad`) next to this repo and build their TS first. CI does
-this for you (see below).
+Only the Rust side needs sibling checkouts: clone `parser`, `jsonic`,
+`json` and `support` next to this repo. CI clones the siblings it builds
+against and links them over the registry copies (see below).
 
 ## Authority and alignment rules
 
@@ -578,7 +578,7 @@ code under the `infinity` option (default on).
 TypeScript (from `ts/`):
 
 ```bash
-npm install            # auto-installs peers; resolves file: siblings
+npm install            # auto-installs peers; resolves the @tabnas devDependencies from the registry
 npm run build          # embeds grammar, then tsc --build src test
 npm test               # node --test over dist-test/*.test.js
 ```
