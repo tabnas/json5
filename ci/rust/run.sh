@@ -7,8 +7,9 @@
 # in turn) and the fixture runner are PATH DEPENDENCIES on sibling
 # checkouts (rs/Cargo.toml: `tabnas = { package = "tabnas-parser", path = "../../parser/rs" }`,
 # `tabnas-jsonic = { path = "../../jsonic/rs" }`, and as a dev-dependency
-# `tabnas-support = { path = "../../support/rs" }`). None is published, so
-# there is no registry version to fall back on. Clone
+# `tabnas-support = { path = "../../support/rs" }`). They are on crates.io,
+# but the committed manifest names them by path alone, so there is no
+# registry version to fall back on. Clone
 # https://github.com/tabnas/parser, https://github.com/tabnas/json,
 # https://github.com/tabnas/jsonic and https://github.com/tabnas/support
 # next to this repo before running.

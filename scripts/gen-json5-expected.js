@@ -15,12 +15,14 @@
  *   .txt   invalid ES5                               -> must fail
  *
  * So the ES5 engine is the oracle. This script applies it once and writes a
- * manifest that BOTH runtimes assert against, which is what stops the suite
- * degenerating into "it did not throw". Go has no ES5 evaluator, so the
- * oracle has to be precomputed for the two runtimes to assert the same thing.
+ * manifest that EVERY runtime asserts against, which is what stops the suite
+ * degenerating into "it did not throw". Go and Rust have no ES5 evaluator,
+ * so the oracle has to be precomputed for the runtimes to assert the same
+ * thing.
  *
  * Values are compared as a canonical STRING (see canon() below) so that the
- * TypeScript and Go runners can agree exactly without a shared value model:
+ * TypeScript, Go and Rust runners can agree exactly without a shared value
+ * model:
  *
  *   null / true / false      -> "null" / "true" / "false"
  *   number                   -> "#<16 hex digits>" = IEEE-754 float64 bits

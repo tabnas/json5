@@ -142,7 +142,7 @@ Numbers are always `float64`, matching `encoding/json`.
 ## Accepted syntax
 
 The default (strict-JSON5) configuration. The same syntax tables apply to
-both ports; see the TS [reference](../../ts/doc/reference.md#accepted-syntax)
+every port; see the TS [reference](../../ts/doc/reference.md#accepted-syntax)
 for the full set with examples. In summary:
 
 - **Top level**. Exactly one value. No implicit lists (`1,2,3`) or maps
@@ -200,6 +200,6 @@ the default `requireValue: true` returns an error too: `Code ==
 
 The grammar is authored once in the repository-root
 [`json5-grammar.jsonic`](../../json5-grammar.jsonic) and embedded
-verbatim into both `go/json5.go` and the TS source by a build step, so
-the two ports parse the same spec. See [concepts](concepts.md) for the
+verbatim into `go/json5.go`, the TS source and `rs/src/lib.rs` by a build
+step, so every port parses the same spec. See [concepts](concepts.md) for the
 model and the embedded railroad diagram in the [README](../README.md).
