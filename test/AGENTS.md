@@ -67,8 +67,8 @@ records a divergence that no longer exists.
 
 The runners are local for now. `@tabnas/support` gains this mechanism in
 `tabnas/support#14`, and the vocabulary here is deliberately the one that PR
-standardises, so adopting it deletes the two runners and leaves the fixture
-untouched.
+standardises, so adopting it replaces the three local runners and leaves
+the fixture untouched.
 
 ## Who runs what
 
@@ -98,11 +98,11 @@ there.
 ## Rules
 
 - Prefer adding a fixture here over a one-off in-language assertion when a
-  case is expressible as input → output. That is what keeps the two
+  case is expressible as input → output. That is what keeps the
   runtimes honest against each other.
-- TypeScript is canonical. If the two runtimes disagree, the TS behaviour is
-  the expected value — unless Go has exposed a genuine TS defect, in which
-  case fix TS first and pin the corrected behaviour here.
+- TypeScript is canonical. If the runtimes disagree, the TS behaviour is
+  the expected value — unless another port has exposed a genuine TS
+  defect, in which case fix TS first and pin the corrected behaviour here.
 - A new fixture must pass in ALL runtimes: run `go test ./...` (from `go/`),
   `cargo test --all-targets` (from `rs/`) and `npm test` (from `ts/`)
   before considering it done.

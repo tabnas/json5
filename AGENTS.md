@@ -723,8 +723,15 @@ The steps, in order:
    2026-09-22 and runs `ci/rust/run.sh`, which fails on the lockfile entry
    before it runs cargo at all, so a forgotten Rust bump goes red remotely
    now. `ci.yml` still delegates to the org-shared polyglot workflow,
-   which takes no Rust input. The crate is not published either, so only
-   the constants have to stay in step.
+   which takes no Rust input. The crate itself ships with the step-5
+   dispatch: once the Go tag is on the remote, `release.yml`'s `crates`
+   job hands it to `crates-release.yml`, which publishes `rs/` from that
+   tag to crates.io over OIDC trusted publishing. It first rewrites the
+   path dependencies on the engine and jsonic into requirements on their
+   newest crates.io versions and drops the path-only `tabnas-support`
+   dev-dependency, so `cargo publish` verify-builds against what a
+   consumer gets. It skips a version crates.io already has, and a failed
+   crates job blocks and unpublishes nothing: re-run that job to repair it.
 2. Verify against the **published** dependencies rather than your checkout.
    The release runner installs fresh from the registry; a working tree
    usually does not, so reproduce that before believing anything:
@@ -745,12 +752,14 @@ The steps, in order:
    suite then passes against unreleased code while appearing to verify the
    published one. Reinstalling is the part that matters.
 
-   One thing a clean install does **not** isolate:
-   `ts/test/doc-examples.test.*` resolves `@tabnas/*` by filesystem path
-   (`const TABNAS = path.join(REPO, '..')`), not through `node_modules`. If
-   unbuilt sibling checkouts sit beside this repo, those blocks fail with
-   `MODULE_NOT_FOUND` no matter what you installed — build the siblings, or
-   verify somewhere they are absent.
+   A clean install covers the doc examples too.
+   `ts/test/doc-examples.test.*` resolves a doc example's `require` through
+   `node_modules` first, and every `@tabnas` package the tested blocks name
+   here, `@tabnas/parser` and `@tabnas/jsonic`, is a devDependency, so the
+   installed copy is what runs; `@tabnas/json5` itself resolves to this
+   repository's `ts/`. Only a `@tabnas/*` package that is not installed
+   falls back to the sibling checkout `../<x>/ts`
+   (`const TABNAS = path.join(REPO, '..')`), and no example here needs one.
 
    `npm test` already compiles here: `ts/package.json` sets `pretest` to
    `npm run build`, which npm runs automatically. No separate build step is
@@ -764,13 +773,17 @@ The steps, in order:
    ```bash
    (
      cd go
-     go mod edit -json | grep -q '"Replace": null' || { echo 'go.mod has a replace'; exit 1; }
+     go mod edit -json | jq -e '.Replace == null' >/dev/null || { echo 'go.mod has a replace'; exit 1; }
      GOWORK=off go test -count=1 ./...
    )
    ```
 
    `-count=1` because shared fixtures live outside the Go module, so a
-   changed corpus does not invalidate the test cache.
+   changed corpus does not invalidate the test cache. The check asks `jq`,
+   not `grep`: current Go leaves the `Replace` key out when there is no
+   replace, where older Go printed `"Replace": null`, and `jq` reads a
+   missing key as null, so the check passes on a clean `go.mod` and fails
+   on a replace either way.
 3. **Merge the bump through a reviewed PR.** That is the house convention —
    `CONTRIBUTING.md` squash-merges PRs and takes the title as the commit
    message — and what `release.yml`'s own header describes. A direct push to
@@ -954,7 +967,7 @@ behaviour change.
 Many rejection rows are a weaker contract: `test/spec/arrays.tsv`,
 `comments.tsv`, `keys.tsv`, `numbers.tsv`, `objects.tsv` and
 `strings.tsv` carry bare `ERROR` cells, which assert that a document is
-rejected but not with which code — either runtime could change the code it
+rejected but not with which code — any runtime could change the code it
 raises without a test going red. Tightening those rows to `ERROR:<code>`
 is an A3/A4 conversion target. The unterminated-structure rows in
 `arrays.tsv` and `objects.tsv` have been converted, bar one `val`-position

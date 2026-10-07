@@ -16,8 +16,10 @@ path = "src/lib.rs"
 # CHECKOUTS, the standard tabnas development model: clone
 # https://github.com/tabnas/parser, https://github.com/tabnas/json and
 # https://github.com/tabnas/jsonic next to this repo (jsonic itself takes
-# json by path). None of the crates is published, so there is no registry
-# version to fall back on.
+# json by path). The crates are on crates.io, but this committed manifest
+# names them by path alone, so there is no registry version to fall back
+# on; crates-release.yml rewrites the paths into crates.io requirements
+# when it publishes this crate.
 tabnas = { package = "tabnas-parser", path = "../../parser/rs" }
 tabnas-jsonic = { path = "../../jsonic/rs" }
 indexmap = "2"

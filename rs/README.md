@@ -85,26 +85,26 @@ the two codes this plugin adds; the rest are the engine's.
 
 ## Install
 
-Neither the engine nor the base grammars are published to a registry, so
-all of them are consumed as **sibling checkouts**, the standard tabnas
-development model. Clone `https://github.com/tabnas/parser`,
-`https://github.com/tabnas/json` and `https://github.com/tabnas/jsonic`
-next to this repository and point at them:
+The engine and the base grammars are on crates.io, the engine as
+`tabnas-parser`, whose library is named `tabnas` in code:
 
-```toml
-[dependencies]
-tabnas-json5 = { path = "../json5/rs" }
-tabnas-jsonic = { path = "../jsonic/rs" }
-tabnas = { package = "tabnas-parser", path = "../parser/rs" }
+```bash
+cargo add tabnas-json5 tabnas-jsonic tabnas-parser
 ```
 
 All three entries are needed. A crate's dependencies are not passed on
 to its dependents, so `tabnas-json5` alone does not put `tabnas` or
 `tabnas_jsonic` in your extern prelude, and the examples above that name
 `tabnas_jsonic::make` would not resolve. Only `Json5Error` is
-re-exported. The test suite additionally needs
-`https://github.com/tabnas/support` beside the repository, for the
-shared fixture runner.
+re-exported.
+
+In this repository the engine and jsonic are taken by path from sibling
+checkouts instead, and jsonic takes `json` the same way, so clone
+`https://github.com/tabnas/parser`, `https://github.com/tabnas/json` and
+`https://github.com/tabnas/jsonic` next to it. The test suite additionally
+needs `https://github.com/tabnas/support` beside the repository, for the
+shared fixture runner. The release workflow swaps those paths for
+crates.io versions when it publishes this crate.
 
 ## Differences from the canonical TypeScript
 

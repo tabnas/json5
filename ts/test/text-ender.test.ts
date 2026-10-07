@@ -6,7 +6,7 @@
 // `{a:b"c}` was `unterminated_string` there and `unexpected` here. tabnas
 // parser#128 moved Go. `test/divergent.tsv` carried the disagreement until
 // the repair landed and the rows went red; the inputs now live in
-// `test/spec/strings.tsv` so both suites keep executing them.
+// `test/spec/strings.tsv` so every suite keeps executing them.
 //
 // They are there as a bare `ERROR`, because that fixture is shared and must
 // hold against the engine the Go module DECLARES as well as the sibling

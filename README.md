@@ -38,11 +38,15 @@ npm install @tabnas/parser @tabnas/jsonic @tabnas/json5
 
 # Go
 go get github.com/tabnas/json5/go@latest
+
+# Rust
+cargo add tabnas-json5
 ```
 
-The Rust crate (`tabnas-json5`) is not published: it is used as a
-sibling checkout beside `parser`, `json` and `jsonic`, with a Cargo
-`path` dependency. See [`rs/README.md`](rs/README.md).
+The Rust crate (`tabnas-json5`) is published to crates.io as well. It is
+enough for `parse`, but it does not put the engine in your scope:
+[`rs/README.md`](rs/README.md) says which crates to add when your code
+names it.
 
 ## Example
 

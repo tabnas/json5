@@ -130,7 +130,7 @@ struct in this version.
 
 Two number shapes are not recognised by the engine's built-in number
 matcher, so they are registered as regex-matched value definitions in the
-grammar (and so behave identically in both ports):
+grammar (and so behave identically in every port):
 
 - **Trailing-decimal-with-exponent** (`5.e4`). Matched by
   `^[+-]?[0-9]+\.[eE][+-]?[0-9]+`, parsed with `strconv.ParseFloat`.
