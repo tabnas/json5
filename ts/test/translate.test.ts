@@ -9,11 +9,28 @@ const { translate } = require('../dist/json5')
 
 const root = path.resolve(__dirname, '..', '..')
 
-test('translation parts expose the manifest and builtin render entry', () => {
+test('translation parts expose the manifest, source and explicit entry', () => {
   const parts = translate()
   assert.ok(parts)
   assert.equal(parts.manifest, readFileSync(path.join(root, 'tabnas.plugin.json'), 'utf8'))
   assert.equal(parts.lift, undefined)
-  assert.equal(parts.render?.entry, 'json')
-  assert.equal(parts.render?.source, undefined)
+  assert.equal(parts.render?.entry, 'json5-render')
+  assert.equal(
+    parts.render?.source,
+    readFileSync(path.join(root, 'alchemy', 'render.alc'), 'utf8'))
+})
+
+// An embed takes a plain tree into a format's own schema. JSON5's events
+// carry a plain tree, so its manifest names none and the package carries
+// none; a manifest that named one would be held to its file here, as the
+// render is above.
+test('translation parts carry the embed the manifest names, and none where it names none', () => {
+  const parts = translate()
+  const spec = JSON.parse(readFileSync(path.join(root, 'tabnas.plugin.json'), 'utf8')).translate
+  if (null == spec.embed) {
+    assert.equal(parts.embed, undefined)
+  } else {
+    assert.equal(parts.embed?.entry, 'json5-embed')
+    assert.equal(parts.embed?.source, readFileSync(path.join(root, spec.embed), 'utf8'))
+  }
 })

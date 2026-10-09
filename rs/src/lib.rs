@@ -1586,6 +1586,8 @@ pub struct TranslationParts {
     pub manifest: &'static str,
     /// An optional lift from the grammar's events to its first read shape.
     pub lift: Option<TranslationPart>,
+    /// An optional embedding of a plain tree in the format's schema, with its reverse.
+    pub embed: Option<TranslationPart>,
     /// An optional render from the write shape to text.
     pub render: Option<TranslationPart>,
 }
@@ -1593,9 +1595,10 @@ pub struct TranslationParts {
 const TRANSLATION: TranslationParts = TranslationParts {
     manifest: include_str!("../translate/manifest.json"),
     lift: None,
+    embed: None,
     render: Some(TranslationPart {
-        entry: "json",
-        source: None,
+        entry: "json5-render",
+        source: Some(include_str!("../translate/render.alc")),
     }),
 };
 
@@ -1607,16 +1610,33 @@ pub const fn translate() -> Option<TranslationParts> {
 
 /// The plugin's manifest, `tabnas.plugin.json`, as the repository carries
 /// it. Its `translate` object is what a host that translates reads: the
-/// shape JSON5 is read as and written from (`tree`), the render that
-/// writes it, which is the `json` render alchemy carries rather than a
-/// file of this repository's, and the sentences that say what that render
-/// does not keep. The crate embeds its own copy, `translate/manifest.json`,
-/// since a packaged crate holds nothing outside `rs/`;
-/// `tests/translate_test.rs` holds the copy to the file.
+/// shape JSON5 is read as and written from (`tree`), the root its render
+/// takes (`any`), the file that holds the render, and the sentences that
+/// say what the render does not keep. The crate embeds its own copy,
+/// `translate/manifest.json`, since a packaged crate holds nothing outside
+/// `rs/`; `tests/translate_test.rs` holds the copy to the file.
 ///
 /// ```
 /// assert!(tabnas_json5::manifest_text().contains("\"translate\""));
 /// ```
 pub fn manifest_text() -> &'static str {
     TRANSLATION.manifest
+}
+
+/// JSON5's render, `alchemy/render.alc`, the file the manifest's
+/// `translate.render` names: a library of alchemy definitions, with no
+/// `export`, whose entry point `json5-render` writes a tree's events as
+/// one compact JSON5 document, a number that is not finite as `Infinity`,
+/// `-Infinity` or `NaN`. A host links it with its own program. The crate
+/// embeds its own copy, `translate/render.alc`, held to the file as the
+/// manifest's is.
+///
+/// ```
+/// assert!(tabnas_json5::render_text().contains("def json5-render [input]"));
+/// ```
+pub fn render_text() -> &'static str {
+    match TRANSLATION.render {
+        Some(part) => part.source.unwrap_or_default(),
+        None => "",
+    }
 }

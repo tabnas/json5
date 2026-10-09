@@ -1,14 +1,16 @@
-// The translation part: what the manifest says and what the crate embeds
-// are the same file.
+// The translation parts: what the manifest says and what the crate
+// embeds are the same files.
 //
 // A packaged crate holds nothing outside `rs/`, so the crate embeds its
-// own copy of `tabnas.plugin.json`, `rs/translate/manifest.json`, as
-// `manifest_text()`. The copy is the only text a host sees, so it must be
-// the file: this holds the embedded manifest to the repository's. Change
-// the manifest at the root and copy it into `rs/translate/`; this fails
-// until both are the same. JSON5's render is the `json` render alchemy
-// carries, not a file of this repository's, so there is no render to hold
-// and no `render_text()`.
+// own copies, `rs/translate/manifest.json` of `tabnas.plugin.json` and
+// `rs/translate/render.alc` of the render the manifest names, as
+// `manifest_text()` and `render_text()`. The copies are the only texts a
+// host sees, so they must be the files: this holds the embedded manifest
+// to the repository's, and the render the manifest names, read from the
+// repository, to the embedded one, as it would an embed the manifest
+// named. Change the file at the root and run `npm run embed` in `ts/`,
+// which copies it into `rs/translate/`; this fails until both are the
+// same.
 
 mod common;
 
@@ -32,29 +34,72 @@ fn the_manifest_the_crate_embeds_is_the_repositorys() {
     assert_eq!(
         on_disk,
         tabnas_json5::manifest_text(),
-        "rs/translate/manifest.json is not tabnas.plugin.json: copy the manifest into rs/translate"
+        "rs/translate/manifest.json is not tabnas.plugin.json: run npm run embed in ts"
     );
 }
 
 #[test]
-fn the_structural_interface_names_the_builtin_render_entry() {
+fn the_render_the_manifest_names_is_the_one_the_crate_embeds() {
+    let translate = translate();
+    let path = translate["render"]
+        .as_str()
+        .expect("translate.render names a file");
+    let on_disk = fs::read_to_string(common::repo_root().join(path))
+        .unwrap_or_else(|e| panic!("translate.render names {path}, which cannot be read: {e}"));
+    assert_eq!(
+        on_disk,
+        tabnas_json5::render_text(),
+        "translate.render names {path}, and rs/translate/render.alc, which render_text() \
+         embeds, is another text: run npm run embed in ts"
+    );
+}
+
+/// An embed takes a plain tree into a format's own schema. JSON5's events
+/// carry a plain tree, so its manifest names none and the crate carries
+/// none; a manifest that named one would be held to its file here, as the
+/// render is above.
+#[test]
+fn the_embed_the_manifest_names_is_the_one_the_crate_embeds() {
+    let translate = translate();
+    let parts = tabnas_json5::translate().expect("JSON5 carries translation parts");
+    let Some(path) = translate.get("embed").and_then(Value::as_str) else {
+        assert_eq!(
+            parts.embed, None,
+            "the manifest names no embed, and the crate carries one"
+        );
+        return;
+    };
+    let on_disk = fs::read_to_string(common::repo_root().join(path))
+        .unwrap_or_else(|e| panic!("translate.embed names {path}, which cannot be read: {e}"));
+    let embed = parts
+        .embed
+        .unwrap_or_else(|| panic!("translate.embed names {path}, and the crate carries no embed"));
+    assert_eq!(embed.entry, "json5-embed");
+    assert_eq!(
+        embed.source,
+        Some(on_disk.as_str()),
+        "translate.embed names {path}, and the crate embeds another text: run npm run embed in ts"
+    );
+}
+
+#[test]
+fn the_structural_interface_names_the_render_entry() {
     let parts = tabnas_json5::translate().expect("JSON5 carries translation parts");
     assert_eq!(parts.manifest, tabnas_json5::manifest_text());
     assert_eq!(parts.lift, None);
     let render = parts.render.expect("JSON5 carries a render");
-    assert_eq!(render.entry, "json");
-    assert_eq!(render.source, None);
+    assert_eq!(render.entry, "json5-render");
+    assert_eq!(render.source, Some(tabnas_json5::render_text()));
 }
 
-/// JSON5 is read as a tree and written from one, through the `json` render
-/// alchemy carries. Its events carry the tree already, so there is no
-/// lift, and no render file of its own.
+/// JSON5 is read as a tree and written from one, at any root. Its events
+/// carry the tree already, so there is no lift, and no accessor for one.
 #[test]
-fn json5_reads_and_writes_a_tree_through_the_json_render() {
+fn json5_reads_and_writes_a_tree_at_any_root_with_no_lift() {
     let translate = translate();
     assert_eq!(translate["reads"], "tree");
     assert_eq!(translate["writes"], "tree");
-    assert_eq!(translate["render"], "json");
+    assert_eq!(translate["root"], "any");
     assert_eq!(translate.get("lift"), None);
 }
 
@@ -71,6 +116,48 @@ fn the_loss_is_a_list_of_sentences() {
         assert!(
             line.starts_with(char::is_uppercase) && line.ends_with('.'),
             "{line:?} is not a sentence"
+        );
+    }
+}
+
+/// A host links the render with its own program and other formats'
+/// parts, so every definition is named for JSON5, the entry point is
+/// `json5-render`, and the file defines no `export` of its own.
+#[test]
+fn the_render_is_a_library_named_for_json5() {
+    let names: Vec<&str> = tabnas_json5::render_text()
+        .lines()
+        .filter_map(|line| line.strip_prefix("def "))
+        .filter_map(|rest| rest.split_whitespace().next())
+        .collect();
+    assert!(names.contains(&"json5-render"), "{names:?}");
+    for name in &names {
+        assert!(name.starts_with("json5-"), "{name} is not named for JSON5");
+    }
+}
+
+/// JSON5 spells the numbers JSON cannot, so the render writes a number
+/// that is not finite by its JSON5 name rather than refusing it, and every
+/// event no tree has is refused with PROTOCOL_ORDER_ERROR, `fail`'s
+/// `:protocol-order` code.
+#[test]
+fn the_render_spells_the_non_finite_numbers_and_refuses_only_events_no_tree_has() {
+    let render = tabnas_json5::render_text();
+    for spelling in ["\"Infinity\"", "\"-Infinity\"", "\"NaN\""] {
+        assert!(
+            render.contains(spelling),
+            "the render does not write {spelling}"
+        );
+    }
+    let fails: Vec<&str> = render
+        .lines()
+        .filter(|line| line.contains("(fail ") && !line.trim_start().starts_with(';'))
+        .collect();
+    assert!(!fails.is_empty());
+    for line in fails {
+        assert!(
+            line.contains("(fail :protocol-order \"the events "),
+            "{line:?} refuses something other than events no tree has"
         );
     }
 }

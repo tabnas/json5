@@ -13,16 +13,21 @@ type TranslationPart struct {
 type TranslationParts struct {
 	Manifest string
 	Lift     *TranslationPart
+	Embed    *TranslationPart
 	Render   *TranslationPart
 }
 
 //go:embed translate/manifest.json
 var translationManifest string
 
+//go:embed translate/render.alc
+var translationRender string
+
 var translationParts = TranslationParts{
 	Manifest: translationManifest,
 	Render: &TranslationPart{
-		Entry: "json",
+		Entry:  "json5-render",
+		Source: translationRender,
 	},
 }
 
