@@ -42,12 +42,13 @@
   "translate": {
     "reads": "tree",
     "writes": "tree",
-    "render": "json",
+    "root": "any",
+    "render": "alchemy/render.alc",
     "loss": [
       "Comments are not kept.",
       "Trailing commas are not kept.",
       "Unquoted keys, single-quoted strings, hexadecimal numbers, leading and trailing decimal points, plus signs and line continuations are written in JSON's forms.",
-      "JSON has no spelling for Infinity or NaN, so a document holding a non-finite number fails to write."
+      "A number that is not finite is written Infinity, -Infinity or NaN, as JSON5 spells it."
     ]
   }
 }
