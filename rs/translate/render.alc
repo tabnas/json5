@@ -33,6 +33,12 @@
 ; a colon after a key, and a line feed after the root value. Once the
 ; root value is written the state is `[:root-done]`, and nothing may
 ; follow it. Events no tree has fail with PROTOCOL_ORDER_ERROR, saying so.
+;
+; Each value directly inside the root array or object is a record of the
+; text: the step that ends one answers alchemy's `:record-end` after its
+; outputs, and so does the step that opens the root, so a host's writer
+; holds a record until its end, and a run that fails part way leaves
+; whole records behind.
 
 ; The top marker, or `:none` before the root value.
 def json5-top [s]
@@ -111,6 +117,20 @@ def json5-member [name s]
     case :object (transition (json5-mark :member s) ["," (quoted name) ":"])
     case _ (fail :protocol-order "the events hold a key where a value is due, which a tree's never do")
 
+; The outputs of a step whose next state is s, with the end of a record
+; after them when s is one level deep: the root opened, or a value
+; directly inside it ended (or the root itself, where the mark is the
+; document's end).
+def json5-ended [s outputs]
+  match (count s)
+    case 1 (push :record-end outputs)
+    case _ outputs
+
+; The step that closes the container at the top of s, writing outputs.
+def json5-closed [s outputs]
+  let [s2 (json5-done (pop s))]
+    transition s2 (json5-ended s2 outputs)
+
 def json5-step [s event]
   match (json5-top s)
     case :root-done (fail :protocol-order "the events hold more after the root value, which a tree's never do")
@@ -118,22 +138,26 @@ def json5-step [s event]
 
 def json5-event [s event]
   match event
-    case array-start (transition (push :array-open (json5-opened (json5-value s))) [(json5-lead s) "["])
-    case object-start (transition (push :object-open (json5-opened (json5-value s))) [(json5-lead s) "{"])
+    case array-start
+      let [s2 (push :array-open (json5-opened (json5-value s)))]
+        transition s2 (json5-ended s2 [(json5-lead s) "["])
+    case object-start
+      let [s2 (push :object-open (json5-opened (json5-value s)))]
+        transition s2 (json5-ended s2 [(json5-lead s) "{"])
     case (key name) (json5-member name s)
     case (scalar value)
-      let [s2 (json5-opened (json5-value s))]
-        transition (json5-done s2) [(json5-lead s) (json5-scalar value) (json5-tail s)]
+      let [s2 (json5-done (json5-opened (json5-value s)))]
+        transition s2 (json5-ended s2 [(json5-lead s) (json5-scalar value) (json5-tail s)])
     case object-end
       match (json5-top s)
-        case :object-open (transition (json5-done (pop s)) ["}" (json5-tail (pop s))])
-        case :object (transition (json5-done (pop s)) ["}" (json5-tail (pop s))])
+        case :object-open (json5-closed s ["}" (json5-tail (pop s))])
+        case :object (json5-closed s ["}" (json5-tail (pop s))])
         case :member (fail :protocol-order "the events end an object after a key and before its value, which a tree's never do")
         case _ (fail :protocol-order "the events end an object that is not open, which a tree's never do")
     case array-end
       match (json5-top s)
-        case :array-open (transition (json5-done (pop s)) ["]" (json5-tail (pop s))])
-        case :array (transition (json5-done (pop s)) ["]" (json5-tail (pop s))])
+        case :array-open (json5-closed s ["]" (json5-tail (pop s))])
+        case :array (json5-closed s ["]" (json5-tail (pop s))])
         case _ (fail :protocol-order "the events end an array that is not open, which a tree's never do")
 
 def json5-finish [s]
