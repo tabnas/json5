@@ -13,6 +13,7 @@ type TranslationParts = Readonly<{
   lift?: TranslationPart
   embed?: TranslationPart
   render?: TranslationPart
+  transduce?: TranslationPart
 }>
 
 const TRANSLATION: TranslationParts = Object.freeze({
@@ -62,6 +63,7 @@ const TRANSLATION: TranslationParts = Object.freeze({
     "writes": "tree",
     "root": "any",
     "render": "alchemy/render.alc",
+    "transduce": "alchemy/transduce.alc",
     "loss": [
       "Comments are not kept.",
       "Trailing commas are not kept.",
@@ -243,6 +245,36 @@ def json5-finish [s]
 def json5-render [input]
   join ""
     scan-emit [] json5-step json5-finish (events input)
+` }),
+  transduce: Object.freeze({ entry: "json5-transduce", source: `; JSON5's transducer part: the document's JSON events from the json5
+; grammar's rule passes (ParserEvents/1), streamed as the parser makes
+; them, so that a host that reads parser events (alchemy-cli's translate
+; and run --grammar, aless) reads a JSON5 document through this file rather
+; than through transduce's inference over the grammar's rule events.
+;
+; The grammar is json's with JSON5's own spellings, comments, trailing
+; commas, unquoted keys, single-quoted strings, hexadecimal numbers and
+; the rest, taken by the lexer and the rules before any pass reaches the
+; part, so the rules that remain map onto a tree as json's do, and the
+; part is the library's declarative transducer, transduce-tree, with
+; json's spec keyed by rule name: a map rule's open pass begins an object
+; and its close pass ends it, a list rule's an array; a pair rule's open
+; pass announces the member's name, its first token's value, decoded; and
+; a val rule's open pass yields the scalar its first token carries, with
+; the lexeme a number token keeps where JSON spells it so (2.50 is
+; written 2.50, a hexadecimal number by its value). Every event is the
+; one the walk of the grammar's value gives, a number's lexeme aside,
+; which alchemy-cli's transduce.tsv runner holds it to; a repeated member
+; is streamed twice, as the document spells it, for a tree-contract or a
+; capture's policy to judge.
+def json5-transduce [input]
+  transduce-tree
+    record
+      entry :map (record (entry :container :object))
+      entry :list (record (entry :container :array))
+      entry :pair (record (entry :key 0))
+      entry :val (record (entry :scalar 0))
+    input
 ` })
 })
 

@@ -10,7 +10,8 @@
 // repository, to the embedded one, as it would an embed the manifest
 // named. Change the file at the root and run `npm run embed` in `ts/`,
 // which copies it into `rs/translate/`; this fails until both are the
-// same.
+// same. The transducer the manifest names, `alchemy/transduce.alc`, is a
+// file of this repository's, and its copy is held the same way.
 
 mod common;
 
@@ -90,6 +91,39 @@ fn the_structural_interface_names_the_render_entry() {
     let render = parts.render.expect("JSON5 carries a render");
     assert_eq!(render.entry, "json5-render");
     assert_eq!(render.source, Some(tabnas_json5::render_text()));
+    let transduce = parts.transduce.expect("JSON5 carries a transducer");
+    assert_eq!(transduce.entry, "json5-transduce");
+    assert!(transduce.source.is_some_and(|s| !s.is_empty()));
+}
+
+/// A transducer makes the format's JSON events of its parser's rule
+/// passes. JSON5's is `alchemy/transduce.alc`, the library's
+/// `transduce-tree` over the grammar's rules, and the crate embeds its own
+/// copy under the entry `json5-transduce`: this holds the copy to the file
+/// the manifest names.
+#[test]
+fn the_transducer_the_manifest_names_is_the_one_the_crate_embeds() {
+    let translate = translate();
+    let parts = tabnas_json5::translate().expect("JSON5 carries translation parts");
+    let path = translate["transduce"]
+        .as_str()
+        .expect("the manifest names a transducer");
+    assert_eq!(path, "alchemy/transduce.alc");
+    let on_disk = fs::read_to_string(common::repo_root().join(path))
+        .unwrap_or_else(|e| panic!("translate.transduce names {path}, which cannot be read: {e}"));
+    assert!(
+        on_disk.contains("def json5-transduce [input]"),
+        "{path} defines json5-transduce"
+    );
+    let transduce = parts.transduce.unwrap_or_else(|| {
+        panic!("translate.transduce names {path}, and the crate carries no transducer")
+    });
+    assert_eq!(transduce.entry, "json5-transduce");
+    assert_eq!(
+        transduce.source,
+        Some(on_disk.as_str()),
+        "translate.transduce names {path}, and the crate embeds another text: run npm run embed in ts"
+    );
 }
 
 /// JSON5 is read as a tree and written from one, at any root. Its events
