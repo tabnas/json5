@@ -44,6 +44,7 @@
     "writes": "tree",
     "root": "any",
     "render": "alchemy/render.alc",
+    "transduce": "alchemy/transduce.alc",
     "loss": [
       "Comments are not kept.",
       "Trailing commas are not kept.",
