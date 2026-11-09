@@ -1018,7 +1018,7 @@ function make(options: Partial<Json5Options> = {}): Tabnas {
 // VERSION is this package's version. It MUST equal package.json "version":
 // the release orchestrator rewrites both, and the version test fails the
 // build if they drift. Mirrors `const VERSION` in go/json5.go.
-const VERSION = '0.5.17'
+const VERSION = '0.5.18'
 
 export { VERSION, Json5, make }
 
