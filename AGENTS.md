@@ -84,9 +84,9 @@ TypeScript (canonical), a Go port and a Rust port.
 
 | Path | What it is |
 |---|---|
-| [`ts/`](ts/) | **Canonical** TypeScript implementation — the `@tabnas/json5` package. Plugin in [`ts/src/json5.ts`](ts/src/json5.ts). Imports the engine as `@tabnas/parser` and the base grammar as `@tabnas/jsonic`. |
-| [`go/`](go/) | Go port — `github.com/tabnas/json5/go`. Plugin in [`go/json5.go`](go/json5.go) (exports `Json5`, `Defaults`, `Parse`, `VERSION`). Requires `github.com/tabnas/jsonic/go`, `github.com/tabnas/parser/go` and `github.com/tabnas/support/go`; it carries NO `replace`, so the sibling checkouts are wired by a `go.work` kept outside every repo. |
-| [`rs/`](rs/) | Rust port — the `tabnas-json5` crate (library `tabnas_json5`, `pub const VERSION` in `rs/src/lib.rs`). Plugin `json5` / `plugin()`, `Json5Options`, `make` / `make_with`, and `parse_with` / `parse` (the counterpart of Go's `Parse`). Depends on the `tabnas` and `tabnas-jsonic` crates by **path** (sibling checkouts of `parser`, `jsonic` and, through jsonic, `json`), and on `tabnas-support` for the fixtures. Library only. See [`rs/AGENTS.md`](rs/AGENTS.md). |
+| [`ts/`](ts/) | **Canonical** TypeScript implementation — the `@tabnas/json5` package. Plugin in [`ts/src/json5.ts`](ts/src/json5.ts) (exports `Json5`, `make`, `VERSION`). Imports the engine as `@tabnas/parser` and the base grammar as `@tabnas/jsonic`. |
+| [`go/`](go/) | Go port — `github.com/tabnas/json5/go`. Plugin in [`go/json5.go`](go/json5.go) (exports `Json5`, `Defaults`, `Make`, `Parse`, `ParseReader`, `CheckReader`, `VERSION`). Requires `github.com/tabnas/jsonic/go`, `github.com/tabnas/parser/go` and `github.com/tabnas/support/go`; it carries NO `replace`, so the sibling checkouts are wired by a `go.work` kept outside every repo. |
+| [`rs/`](rs/) | Rust port — the `tabnas-json5` crate (library `tabnas_json5`, `pub const VERSION` in `rs/src/lib.rs`). Plugin `json5` / `plugin()`, `Json5Options`, `make` / `make_with`, `parse_with` / `parse` (the counterpart of Go's `Parse`), and `parse_reader_with` / `check_reader` (of Go's `ParseReader` / `CheckReader`). Depends on the `tabnas` and `tabnas-jsonic` crates by **path** (sibling checkouts of `parser`, `jsonic` and, through jsonic, `json`), and on `tabnas-support` for the fixtures. Library only. See [`rs/AGENTS.md`](rs/AGENTS.md). |
 | [`tabnas.plugin.json`](tabnas.plugin.json) | The plugin manifest, with the format's **translation part**: its `translate` object says JSON5 reads as a tree and writes from one, whatever its root (`root`), through its own render, [`alchemy/render.alc`](alchemy/render.alc), and its `loss` lines, which a host prints verbatim, say what that render does not keep (comments, trailing commas, JSON5's own spellings) and how it writes a number that is not finite. Its `translate.transduce` names the format's **transducer part**, [`alchemy/transduce.alc`](alchemy/transduce.alc): the document's JSON events from the json5 grammar's rule passes, the library's `transduce-tree` over the grammar's rules (json's, once the lexer and the rules have taken JSON5's own spellings), through which a host that reads parser events (alchemy-cli's `translate` and `run --grammar`) reads a document; every event is the one the walk of the grammar's value gives, a number's lexeme and a repeated member aside: the part streams a repeated member twice, as the document spells it, where the grammar's value merges the two, so a host holds the stream to a policy (alchemy-cli's `translate` refuses one and reads the document whole). `npm run embed` in `ts/` copies the manifest, the render and the transducer into every runtime (`ts/src/translate.ts`, `go/translate/`, `rs/translate/`, which the Rust crate also serves as `manifest_text()` and `render_text()`), and each runtime's translation test holds the copies to the files: change the file at the root, then run the embed. |
 | [`alchemy/render.alc`](alchemy/render.alc) | **JSON5's render**, an [alchemy](https://github.com/tabnas/alchemy) library whose entry point `json5-render` writes a tree's events as one compact JSON5 document: JSON's syntax, which JSON5 reads, with a number that is not finite written `Infinity`, `-Infinity` or `NaN`, as JSON5 spells it and JSON cannot. Events no tree has fail with `PROTOCOL_ORDER_ERROR`. The round trip that runs the render needs alchemy, which this repository does not depend on; it runs in aless's suite. |
 | [`json5-grammar.jsonic`](json5-grammar.jsonic) | The grammar, **source of truth for all three runtimes**. Embedded verbatim into each source file. |
@@ -243,7 +243,7 @@ silently does not happen is a green tick that lies.
 
 Go must call the package-level `Parse(j, src)`, not `j.Parse(src)`, and
 Rust `parse_with(&parser, src)`, not `parser.parse(src)` —
-both are the counterpart of the TS plugin's wrapped `parser.start` and
+both are the counterpart of the TS plugin's guarded `tn.parse` and
 apply the `requireValue` guard, so the instance method would test a
 DIFFERENT entry point from the TypeScript suite.
 
@@ -560,19 +560,113 @@ code under the `infinity` option (default on).
   not a valid JSON5 IdentifierName, and rewrites the ones that are to
   their decoded form (`decodeIdentifierName`, see above).
 - When `requireValue` is set (default), `val` loses its `#ZZ jsonic` alt
-  and the parser's `start` is wrapped so an empty/whitespace-only source
-  errors with code `json5_empty` / `json5_no_value`. (Go: the engine
-  handles an empty source before any pluggable hook, so the guard lives
-  in the package-level `tabnasjson5.Parse(j, src)` wrapper instead. Rust:
-  the engine's `parser.start` hook REPLACES the parse rather than
-  preceding it, so the guard lives in the package-level
-  `tabnas_json5::parse_with(&parser, src)`.)
+  and the instance's own `parse` and `parseReaderWithSizes` (which
+  `parseReader` calls) are wrapped so an empty/whitespace-only source
+  errors with code `json5_empty` / `json5_no_value`. Not the engine's
+  `parser.start`, which the plugin wrapped until the window: the engine
+  replaces its parser whenever the instance's options change, so a
+  wrapper on it was dropped by a host's `tn.options(...)` (transduce's
+  sources call it, and `make()` declares the window with it), and a
+  parse from a reader a window at a time hands `parser.start` an empty
+  `src`. (Go: the engine handles an empty source before any pluggable
+  hook, so the guard lives in the package-level `tabnasjson5.Parse(j,
+  src)` and `ParseReader(j, r)` instead. Rust: the engine's
+  `parser.start` hook REPLACES the parse rather than preceding it, so
+  the guard lives in the package-level
+  `tabnas_json5::parse_with(&parser, src)` and `parse_reader_with`.)
 - `textCheck` (wired as `text.check`) halts lexing on unquoted text that
   is neither a valid IdentifierName start nor a registered value keyword/
   regex, raising "unexpected character".
 - Backtick is pruned from the quote sets unless `backtickString` is on
   (jsonic's option merge is additive for char sets, so it must be removed
   explicitly).
+
+### A document read from a reader, a window at a time
+
+`make()` in TypeScript, `Make()` in Go and `make()` / `make_with()` in
+Rust build the parser whole, jsonic's base with the plugin installed,
+and declare `lex.window` on it, so that a parse from a reader
+(`tn.parseReader`, `Tabnas.ParseReader` and this package's
+`ParseReader`, `Tabnas::parse_reader` and `parse_reader_with`) reads the
+source a window at a time rather than whole (admin ADR-30, ADR-33).
+The plugin function itself declares nothing, since a host may install it
+beneath matchers of its own, and jsonic's base stays window-less too:
+each grammar built on it declares the window in its own constructor.
+Go declares it on jsonic's base BEFORE installing the plugin, where the
+other two declare it after: Go's `SetOptions` rebuilds the lexer's
+configuration from the options, and the plugin removes the backtick from
+the built quote sets where the options cannot say it, so a `SetOptions`
+after the plugin put the backtick back among the multi-line quotes.
+
+While a token is cut from a window, the lexer's text (`lex.src`,
+`Lex.Src`, `Lexer::window`) is the window's and the cursor counts from
+its start, and the window may end inside the token. Every check this
+grammar installs reads only through it, and where a read would pass its
+end, reads it on (`lex.fill`, `Lex.Fill`, `Lexer::fill`, twice as far as
+read, so a long token costs its length and not its square) and carries
+on, so that it answers what the whole text gives:
+
+- the **fixed check**'s scan of a string to its closing quote, and its
+  reader of a string holding a line continuation, with the hex digits of
+  an escape the closing quote cuts short and the span of an error;
+- the **string check**'s scan, the same walk;
+- the **text check**: the first character, and the run of a number's
+  characters at the cursor (ASCII letters and digits, `+`, `-` and `.`)
+  and the character after it. Every keyword the check can meet (one that
+  does not begin an IdentifierName, such as `-Infinity`) and every match
+  of the two value regexes the grammar declares is such a run, which the
+  window tests pin (`value-definitions-read-a-numbers-characters`,
+  `TestValueDefinitionsReadNumberCharacters`,
+  `the_value_definitions_read_a_numbers_characters`): a definition that
+  could match another character must widen the class first.
+
+**The fixed check reads on first.** The engine cuts a token again over a
+wider window when a matcher's read reached the window's end, unless the
+source has ended. A check that read on in the middle of a cut, to the end
+of the source, kept the answer a matcher before it gave over the shorter
+window: under a window of one character, the comment matcher saw only
+the `/` of `/* x`, and the text check, reading on to the end, made the
+cut stand as `unexpected` where the whole text gives
+`unterminated_comment`. The fixed check runs before every other matcher
+at every token, so it reads on as far as any check of this grammar will
+read there (`holdText` / `hold_text`, and the string scan), and every
+matcher of the cut reads the same window.
+
+**The requireValue rule reads a reader only as far as it must**: the
+leading whitespace and comments and the first character after them,
+with the walk `hasValue` makes of a text, resumed as bytes arrive
+(`ValueScan`, `valueScan`), then hands the parse a reader that gives
+those bytes first and then the rest. A read that fails, or bytes that are
+not UTF-8, are the parse's to report (`unreadable`), never shadowed by
+`json5_no_value`. A host that drives the engine's reader parse itself,
+as dmog does through transduce's sources, calls `CheckReader` (Go) or
+`check_reader` (Rust) first in place of reading the document whole; in
+TypeScript the rule rides on the instance's `parseReader`, which those
+sources call. The rule cannot be a rule of the grammar in any runtime:
+every engine settles an empty source before any rule or matcher runs and
+refuses it with its own `unexpected`, so `json5_empty` comes from a
+wrapper, and a hash-comment-only source is refused by the engine's
+`unexpected` rather than `json5_no_value` when the rule is on
+(`test/spec/options.tsv`), which a rule at the end of the source would
+have to tell from a slash-comment-only one by the comments the lexer
+passed over.
+
+The proof is `ts/test/window.test.ts`, `go/window_test.go` and
+`rs/tests/reader_test.rs`: every fixture row, every corpus document and
+every derived probe parses the same from a reader, in pieces of a few
+bytes and (TypeScript and Rust) under windows of a few characters, as
+from its text, value and error code, position, row, column and token
+text alike; strings the window's edge cuts at every place, the values
+the text check judges (with the number lexer off too, where nothing
+reads ahead of the check), tokens longer than the window and long
+documents parse the same. Each fill is mutation-checked: with it taken
+out a test goes red, but where the engine already covers the read (in
+Go, the 64 KiB margin and the number matcher; in TypeScript, `lex.bad`,
+which notes a span the window cuts). Rust's reader test registers one
+engine defect, tabnas/parser#322 (the window's `fill_window` indexing one
+past the characters it holds when it drops all of them and holds one
+past ASCII, which a source of only such whitespace meets), held to still
+fail so that the entry is deleted once the engine is repaired.
 
 ## Build & test
 
@@ -1004,7 +1098,8 @@ Both codes come from the same guard, and both are pinned by fixtures in
 comments-only source failed with a generic engine code instead. It is
 raised now, by a `hasValue` scan in each runtime (`ts/src/json5.ts`,
 `go/json5.go`, and `has_value` in `rs/src/lib.rs`) that must be kept in
-step.
+step. It is the same walk the rule makes of a reader (`ValueScan` /
+`valueScan`, resumed as bytes arrive), so the two cannot drift.
 
 **That scan does not lex or parse, and must not start.** It looks for the
 first character that is neither whitespace nor part of a comment and stops
@@ -1066,6 +1161,9 @@ operating on the parse result must treat every value as hostile text.
   wide containers.
 - `ts/test/perf.test.ts` / `go/perf_test.go` / `rs/tests/perf_test.rs` —
   reusing one instance must beat rebuilding per parse.
+- `ts/test/window.test.ts` / `go/window_test.go` /
+  `rs/tests/reader_test.rs` — a parse from a reader, a window at a time:
+  see "A document read from a reader, a window at a time".
 - `ts/test/version.test.ts` / `go/version_test.go` /
   `rs/tests/version_test.rs` — the version-drift guards: the baked-in
   `VERSION` in each runtime must equal `ts/package.json` "version". They

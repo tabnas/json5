@@ -8,13 +8,14 @@ and this file only covers what is specific to this crate.
 
 | Path | |
 |---|---|
-| `src/lib.rs` | the whole port: `Json5Options`, the embedded grammar text, the lexer checks, the value transforms, the pair-key validator, `json5`, `plugin`, `make`, `make_with`, `parse_with`, `parse`, and the translation parts `manifest_text` and `render_text`, `include_str!` of the copies in `translate/` |
+| `src/lib.rs` | the whole port: `Json5Options`, the embedded grammar text, the lexer checks, the value transforms, the pair-key validator, `json5`, `plugin`, `make`, `make_with` (which declare `lex.window`), `parse_with`, `parse`, `check_reader`, `parse_reader_with`, and the translation parts `manifest_text` and `render_text`, `include_str!` of the copies in `translate/` |
 | `tests/parity_test.rs` | every `../test/spec/*.tsv` fixture through `tabnas_support::Runner`, a fresh parser per row for the `opts` column, plus two tripwires: every fixture has the standard shape, and the row CENSUS is the one recorded |
 | `tests/suite_test.rs` | the vendored `../test/json5-tests` corpus against `../test/json5-tests-expected.json`, both halves, plus the derived truncation and trailing probes |
 | `tests/divergent_test.rs` | the register `../test/divergent.tsv`, `rust` column |
 | `tests/text_ender_test.rs` | the P1/P2 pin: a quote does not end a text run |
 | `tests/json5_test.rs` | in-language behaviour: the `go/json5_test.go` cases, the API, threads |
 | `tests/untrusted_test.rs` | playbook section 7: deep nesting, very long input, unterminated constructs, control characters, wide containers |
+| `tests/reader_test.rs` | a parse from a reader, a window at a time: every fixture row, corpus document and derived probe, strings the window's edge cuts at every place, the values the text check judges, long documents; `make` declares the window; `check_reader` reads only the leading trivia; the one engine defect it registers, tabnas/parser#322 (see `../AGENTS.md`, "A document read from a reader, a window at a time") |
 | `tests/perf_test.rs` | reuse of one instance must beat rebuilding per parse, and cost must grow about linearly with input size |
 | `tests/version_test.rs` | Cargo.toml == `VERSION` == ts/package.json |
 | `tests/translate_test.rs` | the translation parts: the embedded manifest is `../tabnas.plugin.json`, the render it names is the one `render_text()` embeds, the embed it names is the one `translate()` carries (none, for JSON5), the manifest's shapes, root and loss lines, and every render definition named `json5-...` |
@@ -119,6 +120,14 @@ document is installed, because the document is what looks them up:
   walk, `scan_string_escapes`, with the fixed check, which refuses a
   continuation string holding one the same way, since such a string
   never reaches this check.
+
+All three are `imperative_lex_check_ref`s, which take the lexer: a
+`lex_check_ref` takes the text to the window's end and cannot read the
+window on. They read through `Lexer::window` and `Lexer::fill`
+(`scan_string_at`, `hold_text`, `read_on`), and the fixed check, which
+runs first at every token, reads on as far as either of the others will,
+so that every matcher of the cut reads the same window; `../AGENTS.md`,
+"A document read from a reader, a window at a time", has why.
 - `@parse-trailing-dec-exp` and `@parse-uppercase-hex` are
   `value_transform_ref`s. Note the Rust number lexer already accepts
   `0X` and `5.e4`, so the regex definitions mostly pin agreement --
@@ -170,7 +179,7 @@ rule, exactly as the Go port's `filterTinFromAlts` does. Then it drops
 the `comma,jsonic` alternate from `pair.open` and, under
 `require_value`, the `#ZZ jsonic` alternate from `val.open`.
 
-## Why `parse_with` exists
+## Why `parse_with` and `parse_reader_with` exist
 
 The Go port's `Parse(j, src)`, for the same reason: the engine runs a
 `parser.start` hook INSTEAD of the parse, not before it, so a plugin
@@ -183,7 +192,15 @@ it is.
 
 `Tabnas::parse` on the instance parses JSON5 exactly as `parse_with`
 does, line continuations included, since the fixed check reads them in
-the lexer; only the two requireValue codes need the wrapper. Every
+the lexer; only the two requireValue codes need the wrapper.
+
+`parse_reader_with` is the same for a reader: `check_reader` applies the
+rule to the reader's leading whitespace and comments only, with the walk
+`has_value` makes of a text resumed as bytes arrive (`ValueScan`), and
+hands back a reader (`Checked`) that gives the bytes it read and then the
+rest, and a read that failed where it failed; the parser then reads that
+through `Tabnas::parse_reader`, a window at a time. A host with a reader
+source of its own calls `check_reader` first. Every
 fixture goes through `parse_with`, and the continuation tests in
 `tests/json5_test.rs` hold the two entry points to the same answer.
 

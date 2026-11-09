@@ -28,7 +28,10 @@ onto a `*tabnasjsonic.Jsonic` instance with `UseDefaults`.
 |---|---|---|
 | `Json5` | `func(j *tabnasjsonic.Jsonic, opts map[string]any) error` | The plugin function. Pass it to `UseDefaults`. |
 | `Defaults()` | `func() map[string]any` | Returns a fresh copy of the default option map (strict JSON5). |
-| `Parse(j, src)` | `func(j *tabnasjsonic.Jsonic, src string) (any, error)` | Parse with the `requireValue` empty-input guard (TS wraps `parser.start` for this): an empty source errors with code `json5_empty`. All other input delegates to `j.Parse(src)`. |
+| `Parse(j, src)` | `func(j *tabnasjsonic.Jsonic, src string) (any, error)` | Parse with the `requireValue` empty-input guard (TS wraps the instance's `parse` for this): an empty source errors with code `json5_empty`. All other input delegates to `j.Parse(src)`. |
+| `ParseReader(j, r)` | `func(j *tabnasjsonic.Jsonic, r io.Reader) (any, error)` | Parse a source read from `r`, with the same guard as `Parse`. The guard reads only the leading whitespace and comments, and `j.ParseReader` reads the rest. |
+| `CheckReader(j, r)` | `func(j *tabnasjsonic.Jsonic, r io.Reader) (io.Reader, error)` | Apply the guard to `r` and return a reader that gives every byte of `r`. |
+| `Make(opts...)` | `func(opts ...map[string]any) *tabnasjsonic.Jsonic` | Build a parser with `Json5` installed under `Defaults()` and `opts`, and with `lex.window` declared, so that `ParseReader` reads a reader a window at a time. |
 | `VERSION` | `const string` | The plugin's semantic version. Always equal to `ts/package.json` "version"; `TestVersionMatchesPackageJSON` fails the build if they drift. |
 
 Parsing is done through the jsonic instance you install the plugin on

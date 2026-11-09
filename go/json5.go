@@ -19,9 +19,14 @@
 //	    return err
 //	}
 //	v, err := j.Parse(`{ a: 1, b: +Infinity, c: [1,2,] }`)
+//
+// Make builds the same parser whole, with lex.window declared, so that a
+// source read from a reader (ParseReader) is read a window at a time.
 package tabnasjson5
 
 import (
+	"bytes"
+	"io"
 	"math"
 	"strconv"
 	"strings"
@@ -61,6 +66,15 @@ func isLineTerminatorRune(r rune) bool {
 	return r == '\n' || r == '\r' || r == '\u2028' || r == '\u2029'
 }
 
+// isNumberChar reports whether b is one of the characters a number is
+// written in: an ASCII letter (a base marker, a hex digit, an exponent, or
+// a keyword such as Infinity) or digit, a sign, or a point. A match of a
+// value regex the grammar declares is a run of these.
+func isNumberChar(b byte) bool {
+	return ('0' <= b && b <= '9') || ('a' <= b && b <= 'z') || ('A' <= b && b <= 'Z') ||
+		b == '+' || b == '-' || b == '.'
+}
+
 // What a string literal holds, as scanStringEscapes reports it. A string
 // with neither is the engine's.
 type stringEscapes struct {
@@ -71,15 +85,65 @@ type stringEscapes struct {
 	continued bool
 }
 
-// scanStringEscapes reports what the string literal opening at start holds,
-// walked the way the string check has always walked it: an escape takes the
-// character after it along, and the walk ends at the closing quote or the
-// end of the source. Mirrors scanString in ts/src/json5.ts.
-func scanStringEscapes(src string, start int, quote, esc rune) stringEscapes {
+// source reads the text of the token being cut through the lexer's window,
+// so that a parse from a reader may hold a window of the source rather than
+// all of it (lex.window, admin ADR-30). While a token is cut, lex.Src is the
+// window's text and the cursor counts from the window's start; the window
+// may end inside the token. held reads on where a read would pass the
+// window's end, so every read here is of the text the whole source has at
+// that place. In a whole text Lex.Fill only answers.
+type source struct {
+	lex  *tabnas.Lex
+	text string // lex.Src, as of the last fill
+	from int    // the cursor: where the token being cut starts
+}
+
+func sourceAt(lex *tabnas.Lex) *source {
+	return &source{lex: lex, text: lex.Src, from: lex.Cursor().SI}
+}
+
+// held reports whether the text holds byte i, the source having that many.
+// Where i lies past the window's end, the window is asked to reach twice as
+// far past the cursor as has been read, so a long token costs its length to
+// read and not its square, and the text it held keeps its positions: the
+// window drops nothing while a token is cut. The window holds whole
+// characters, so a character whose first byte is held is held whole.
+func (s *source) held(i int) bool {
+	if i < len(s.text) {
+		return true
+	}
+	read := i - s.from
+	s.lex.Fill(max(read+1, 2*read))
+	s.text = s.lex.Src
+	return i < len(s.text)
+}
+
+// holdText reads the window on as far as textCheck reads at the cursor:
+// the run of a number's characters there (isNumberChar) and the character
+// after it, or to the end of the source, so that a keyword or a value regex
+// judged on the window answers what it answers of the whole source. Every
+// keyword the check can meet (one that does not begin an IdentifierName,
+// such as -Infinity) and every match of a value regex the grammar declares
+// is a run of a number's characters
+// (TestValueDefinitionsReadNumberCharacters).
+func holdText(lex *tabnas.Lex) {
+	s := sourceAt(lex)
+	for end := s.from; s.held(end) && isNumberChar(s.text[end]); end++ {
+	}
+}
+
+// scanStringEscapes reports what the string literal opening at the cursor
+// holds, walked the way the string check has always walked it: an escape
+// takes the character after it along, and the walk ends at the closing
+// quote or the end of the source. It reads through the window, as far as
+// the string runs. Mirrors scanString in ts/src/json5.ts.
+func scanStringEscapes(lex *tabnas.Lex, quote, esc rune) stringEscapes {
 	var found stringEscapes
-	_, qsize := utf8.DecodeRuneInString(src[start:])
-	for i := start + qsize; i < len(src); {
-		r, size := utf8.DecodeRuneInString(src[i:])
+	s := sourceAt(lex)
+	start := s.from
+	_, qsize := utf8.DecodeRuneInString(s.text[start:])
+	for i := start + qsize; s.held(i); {
+		r, size := utf8.DecodeRuneInString(s.text[i:])
 		if r == quote {
 			break
 		}
@@ -87,16 +151,16 @@ func scanStringEscapes(src string, start int, quote, esc rune) stringEscapes {
 			i += size
 			continue
 		}
-		if i+size >= len(src) {
+		if !s.held(i + size) {
 			break
 		}
-		next := src[i+size]
+		next := s.text[i+size]
 		var after byte
-		if i+size+1 < len(src) {
-			after = src[i+size+1]
+		if s.held(i + size + 1) {
+			after = s.text[i+size+1]
 		}
 		// Skip the escape lead and the character it escapes.
-		n, nsize := utf8.DecodeRuneInString(src[i+size:])
+		n, nsize := utf8.DecodeRuneInString(s.text[i+size:])
 		if ('1' <= next && next <= '9') ||
 			(next == '0' && '0' <= after && after <= '9') ||
 			(next == 'u' && after == '{') {
@@ -132,14 +196,15 @@ func scanStringEscapes(src string, start int, quote, esc rune) stringEscapes {
 // one, inside a string or out, and counts as the two columns the source
 // has. A continuation is no code unit, so a surrogate pair written either
 // side of one is still a pair, as it is in the source text. The grammar
-// declares no string.replace, so there is no replace step. Mirrors
-// readContinuedString in ts/src/json5.ts.
+// declares no string.replace, so there is no replace step. It reads through
+// the window (source), so a string the window ends inside reads as the
+// whole text has it. Mirrors readContinuedString in ts/src/json5.ts.
 func readContinuedString(lex *tabnas.Lex, quote, esc rune) *tabnas.Token {
 	cfg := lex.Config
 	p := lex.Cursor()
-	src := lex.Src
+	s := sourceAt(lex)
 	start := p.SI
-	_, qsize := utf8.DecodeRuneInString(src[start:])
+	_, qsize := utf8.DecodeRuneInString(s.text[start:])
 	multiLine := cfg.MultiChars[quote]
 
 	sI := start + qsize
@@ -177,37 +242,39 @@ func readContinuedString(lex *tabnas.Lex, quote, esc rune) *tabnas.Token {
 	}
 
 	// An error inside the string is sited where it stands: on the offending
-	// character, or on the backslash of a malformed escape.
+	// character, or on the backslash of a malformed escape. Its span is the
+	// whole text's, cut at the end of the source.
 	bad := func(why string, at, atCI, end int) *tabnas.Token {
-		if end > len(src) {
-			end = len(src)
+		s.held(end - 1)
+		if end > len(s.text) {
+			end = len(s.text)
 		}
 		p.SI, p.RI, p.CI = at, rI, atCI
-		tkn := lex.Token("#BD", tabnas.TinBD, nil, src[at:end])
+		tkn := lex.Token("#BD", tabnas.TinBD, nil, s.text[at:end])
 		tkn.Why = why
 		return tkn
 	}
 
-	for sI < len(src) {
-		c, size := utf8.DecodeRuneInString(src[sI:])
+	for s.held(sI) {
+		c, size := utf8.DecodeRuneInString(s.text[sI:])
 
 		if c == quote {
 			flushHi()
-			tkn := lex.Token("#ST", tabnas.TinST, sb.String(), src[start:sI+size])
+			tkn := lex.Token("#ST", tabnas.TinST, sb.String(), s.text[start:sI+size])
 			p.SI, p.RI, p.CI = sI+size, rI, cI+1
 			return tkn
 		}
 
 		if c == esc {
-			if sI+size >= len(src) {
+			if !s.held(sI + size) {
 				break
 			}
-			n, nsize := utf8.DecodeRuneInString(src[sI+size:])
+			n, nsize := utf8.DecodeRuneInString(s.text[sI+size:])
 			body := sI + size + nsize
 
 			if isLineTerminatorRune(n) {
 				ender := n
-				if n == '\r' && strings.HasPrefix(src[body:], "\n") {
+				if n == '\r' && s.held(body) && s.text[body] == '\n' {
 					ender = '\n'
 					body++
 				}
@@ -233,7 +300,7 @@ func readContinuedString(lex *tabnas.Lex, quote, esc rune) *tabnas.Token {
 			}
 
 			if n == 'x' && !cfg.EscapeStrict {
-				cc := hexValue(src, body, 2)
+				cc := s.hexValue(body, 2)
 				if cc < 0 {
 					return bad("invalid_ascii", sI, cI, sI+4)
 				}
@@ -244,7 +311,7 @@ func readContinuedString(lex *tabnas.Lex, quote, esc rune) *tabnas.Token {
 			}
 
 			if n == 'u' {
-				cc := hexValue(src, body, 4)
+				cc := s.hexValue(body, 4)
 				if cc < 0 {
 					return bad("invalid_unicode", sI, cI, sI+6)
 				}
@@ -257,7 +324,7 @@ func readContinuedString(lex *tabnas.Lex, quote, esc rune) *tabnas.Token {
 			if !cfg.AllowUnknownEscape {
 				return bad("unexpected", sI+size, cI+1, body)
 			}
-			sb.WriteString(src[sI+size : body])
+			sb.WriteString(s.text[sI+size : body])
 			sI = body
 			cI += 2
 			continue
@@ -280,25 +347,26 @@ func readContinuedString(lex *tabnas.Lex, quote, esc rune) *tabnas.Token {
 		}
 
 		flushHi()
-		sb.WriteString(src[sI : sI+size])
+		sb.WriteString(s.text[sI : sI+size])
 		sI += size
 		cI++
 	}
 
-	// Unterminated: sited on the opening quote, as the engine sites it.
-	tkn := lex.Token("#BD", tabnas.TinBD, nil, src[start:])
+	// Unterminated: sited on the opening quote, as the engine sites it. The
+	// walk read to the end of the source, so the window holds it all.
+	tkn := lex.Token("#BD", tabnas.TinBD, nil, s.text[start:])
 	tkn.Why = "unterminated_string"
 	return tkn
 }
 
-// hexValue reads exactly n hex digits at src[at:], or answers -1 when fewer
+// hexValue reads exactly n hex digits at byte at, or answers -1 when fewer
 // than n are there: a short or junk-terminated run is not an escape.
-func hexValue(src string, at, n int) int {
-	if at+n > len(src) {
+func (s *source) hexValue(at, n int) int {
+	if !s.held(at + n - 1) {
 		return -1
 	}
 	v := 0
-	for _, b := range []byte(src[at : at+n]) {
+	for _, b := range []byte(s.text[at : at+n]) {
 		switch {
 		case '0' <= b && b <= '9':
 			v = v<<4 | int(b-'0')
@@ -494,6 +562,44 @@ func Defaults() map[string]any {
 	}
 }
 
+// Make builds a JSON5 parser whole: jsonic's base (tabnasjsonic.Make) with
+// Json5 installed under Defaults() and the given options, as
+// `tabnasjsonic.Make()` then `j.UseDefaults(Json5, Defaults(), options)`
+// builds it, and with lex.window declared, so that a source read from a
+// reader (Tabnas.ParseReader, and ParseReader here) is read a window at a
+// time rather than whole (admin ADR-30). The checks this grammar installs
+// read the source only through the lexer's window, and jsonic's base reads
+// it through the window too (jsonic 0.7.11). Several option maps merge, a
+// later key winning.
+//
+// The window is declared on the parser this package makes whole, and not
+// in Json5, which a host may install beneath matchers of its own. It is
+// declared on jsonic's base before Json5 is installed: SetOptions rebuilds
+// the lexer's configuration from the options, and Json5 removes the
+// backtick from the configuration's quote sets where the options cannot,
+// so a SetOptions after Json5 would put the backtick back among the
+// multi-line quotes.
+//
+// Parse a document with Parse or ParseReader, which apply the requireValue
+// option, as with any parser Json5 is installed on. Infallible by design:
+// the grammar is fixed and the options are read as booleans, so a failure
+// to install is a bug in this package, and Make panics on it.
+func Make(options ...map[string]any) *tabnas.Tabnas {
+	merged := map[string]any{}
+	for _, o := range options {
+		for k, v := range o {
+			merged[k] = v
+		}
+	}
+	j := jsonic.Make()
+	yes := true
+	j.SetOptions(tabnas.Options{Lex: &tabnas.LexOptions{Window: &yes}})
+	if err := j.UseDefaults(Json5, Defaults(), merged); err != nil {
+		panic("json5: the embedded grammar does not install: " + err.Error())
+	}
+	return j
+}
+
 // optBool reads a boolean option by key, returning fallback if absent or
 // not a bool.
 func optBool(opts map[string]any, key string, fallback bool) bool {
@@ -647,22 +753,38 @@ func Json5(j *tabnas.Tabnas, opts map[string]any) error {
 	// finished token. Such a string never reaches stringCheck, so one that
 	// also holds a forbidden escape is refused here instead, the same way
 	// and at the same place: unexpected, on the quote. Anywhere else
-	// fixedCheck does nothing, and every other string is the engine's.
+	// fixedCheck makes no token, and every other string is the engine's.
+	//
+	// In a parse from a reader it also reads the window on, first, as far
+	// as any check of this grammar reads at this token: a string to its
+	// closing quote (the scan), and where the text check may judge the
+	// token, what it reads (holdText). The engine cuts a token again over a
+	// wider window when a matcher's read reached the window's end, unless
+	// the source has ended; a check that read on in the middle of the cut,
+	// to the end of the source, would keep the answer a matcher before it
+	// gave over the shorter window. Read on first, every matcher of the cut
+	// reads the same window.
 	fixedCheck := func(lex *tabnas.Lex) *tabnas.LexCheckResult {
 		p := lex.Cursor()
 		cfg := lex.Config
-		if p == nil || cfg == nil || p.SI >= len(lex.Src) {
+		if p == nil || cfg == nil || !sourceAt(lex).held(p.SI) {
 			return nil
 		}
 		quote, qsize := utf8.DecodeRuneInString(lex.Src[p.SI:])
 		if !cfg.StringChars[quote] {
+			// What the text check reads at this token, read now: see below.
+			if !isJS5IdentifierStart(quote) {
+				holdText(lex)
+			}
 			return nil
 		}
 		esc := cfg.EscapeChar
 		if esc == 0 {
 			esc = '\\'
 		}
-		found := scanStringEscapes(lex.Src, p.SI, quote, esc)
+		// The scan reads the string through the window to its closing quote,
+		// or to the end of the source, as the string check reads it.
+		found := scanStringEscapes(lex, quote, esc)
 		if !found.continued {
 			return nil
 		}
@@ -678,18 +800,29 @@ func Json5(j *tabnas.Tabnas, opts map[string]any) error {
 	// JSON5 IdentifierName AND are not a value-def keyword / regex match.
 	// Returning Done=true with a nil Token tells the lexer no token
 	// exists here, raising "unexpected character".
+	//
+	// It reads through the window as far as its answer needs (holdText):
+	// the first character, and the run of a number's characters at the
+	// cursor (ASCII letters and digits, `+`, `-` and `.`) and the character
+	// after it, which holds any keyword and any value regex match it can
+	// meet. fixedCheck has read that far already.
 	textCheck := func(lex *tabnas.Lex) *tabnas.LexCheckResult {
 		p := lex.Cursor()
-		if p == nil || p.SI >= len(lex.Src) {
+		if p == nil {
 			return nil
 		}
-		forward := lex.Src[p.SI:]
-		r, _ := utf8.DecodeRuneInString(forward)
+		s := sourceAt(lex)
+		if !s.held(p.SI) {
+			return nil
+		}
+		r, _ := utf8.DecodeRuneInString(s.text[p.SI:])
 		if isJS5IdentifierStart(r) {
 			return nil
 		}
 		cfg := lex.Config
 		if cfg != nil {
+			holdText(lex)
+			forward := lex.Src[p.SI:]
 			for name := range cfg.ValueDef {
 				if strings.HasPrefix(forward, name) {
 					return nil
@@ -719,7 +852,7 @@ func Json5(j *tabnas.Tabnas, opts map[string]any) error {
 	// uses. Mirrors the TS stringCheck.
 	stringCheck := func(lex *tabnas.Lex) *tabnas.LexCheckResult {
 		p := lex.Cursor()
-		if p == nil || p.SI >= len(lex.Src) {
+		if p == nil || !sourceAt(lex).held(p.SI) {
 			return nil
 		}
 		cfg := lex.Config
@@ -734,7 +867,7 @@ func Json5(j *tabnas.Tabnas, opts map[string]any) error {
 		if esc == 0 {
 			esc = '\\'
 		}
-		if scanStringEscapes(lex.Src, p.SI, quote, esc).forbidden {
+		if scanStringEscapes(lex, quote, esc).forbidden {
 			return &tabnas.LexCheckResult{Done: true, Token: nil}
 		}
 		return nil
@@ -944,22 +1077,25 @@ func Json5(j *tabnas.Tabnas, opts map[string]any) error {
 		})
 	}
 
-	// Record the resolved requireValue flag on the instance so Parse can
-	// apply the empty-input guard. The TS plugin wraps parser.start for
-	// this; the Go engine handles an empty source before any pluggable
-	// hook (custom Parser.Start included), so the guard lives in the
-	// package-level Parse wrapper instead.
+	// Record the resolved requireValue flag on the instance so Parse and
+	// ParseReader can apply the empty-input guard. The TS plugin wraps the
+	// instance's own parse and parseReader for this; a Go method cannot be
+	// wrapped on an instance, and the Go engine handles an empty source
+	// before any pluggable hook (custom Parser.Start included), so the
+	// guard lives in the package-level Parse and ParseReader instead.
 	j.Decorate(requireValueMark, requireValue)
 
 	return nil
 }
 
 // Parse parses a JSON5 source string with a Json5-configured instance.
-// It is the Go counterpart of the TS plugin's wrapped `parser.start`:
-// when the requireValue option is set (the default) and the source is
-// empty, it returns a *tabnas.TabnasError with code "json5_empty"
-// ("JSON5 input must contain a value"), exactly as the TS plugin
-// throws. All other input delegates to j.Parse.
+// It is the Go counterpart of the TS plugin's guarded `tn.parse`: when the
+// requireValue option is set (the default) and the source is empty, it
+// returns a *tabnas.TabnasError with code "json5_empty" ("JSON5 input must
+// contain a value"), and one of only whitespace and comments
+// "json5_no_value", exactly as the TS plugin throws. All other input
+// delegates to j.Parse. ParseReader is its counterpart for a source read
+// from a reader.
 //
 // The guard cannot be installed on j.Parse itself: the Go engine
 // short-circuits an empty source before any pluggable hook runs (a
@@ -978,6 +1114,171 @@ func Parse(j *tabnas.Tabnas, src string) (any, error) {
 	return j.Parse(src)
 }
 
+// ParseReader parses a JSON5 source read from r with a Json5-configured
+// instance: the counterpart of Parse for a reader, and of the TS plugin's
+// guarded `tn.parseReader`. The requireValue guard reads r only as far as
+// its answer needs (CheckReader), and the instance then reads the rest
+// through Tabnas.ParseReader: a window at a time where it declares
+// lex.window, as Make's parser does, so that a long document is never held
+// whole. It gives the value and the errors Parse gives of the same text,
+// but for an error's excerpt of a very long line (tabnas/parser
+// DIVERGENCE.md).
+func ParseReader(j *tabnas.Tabnas, r io.Reader) (any, error) {
+	rest, err := CheckReader(j, r)
+	if err != nil {
+		return nil, err
+	}
+	return j.ParseReader(rest)
+}
+
+// CheckReader applies the requireValue guard Parse applies to a source
+// read from r, reading only as far as the answer needs: the leading
+// whitespace and comments, and the first character after them. With the
+// option set (the default) on j, it refuses an empty source as
+// "json5_empty" and one of only whitespace and comments as
+// "json5_no_value", as Parse does; any other source it hands back as a
+// reader that gives every byte r gives, the ones it read first, for the
+// parse. A read that fails, or bytes that are not UTF-8, are the parse's
+// to report (the engine's unreadable): the returned reader gives them as r
+// did. A host that parses through its own reader source, as dmog does
+// through transduce's, calls this first in place of reading the document
+// whole for the guard.
+func CheckReader(j *tabnas.Tabnas, r io.Reader) (io.Reader, error) {
+	if rv, ok := j.Decoration(requireValueMark).(bool); !ok || !rv || r == nil {
+		return r, nil
+	}
+	var read []byte
+	var scan valueScan
+	buf := make([]byte, 512)
+	for {
+		n, err := r.Read(buf)
+		read = append(read, buf[:n]...)
+		if err != nil && err != io.EOF {
+			return io.MultiReader(bytes.NewReader(read), failedRead{err}), nil
+		}
+		end := err == io.EOF
+		switch scan.scan(read, end) {
+		case scanValue:
+			if end {
+				return bytes.NewReader(read), nil
+			}
+			return io.MultiReader(bytes.NewReader(read), r), nil
+		case scanNone:
+			if !utf8.Valid(read) {
+				return bytes.NewReader(read), nil
+			}
+			if len(read) == 0 {
+				return nil, json5ValueError(j, "json5_empty")
+			}
+			return nil, json5ValueError(j, "json5_no_value")
+		}
+	}
+}
+
+// failedRead is a reader whose read fails as a read of the reader
+// CheckReader read from did, so that the parse reports it where it stands.
+type failedRead struct{ err error }
+
+func (f failedRead) Read([]byte) (int, error) { return 0, f.err }
+
+// The requireValue scan's answers.
+const (
+	scanMore  = iota // what has been read does not answer: read on
+	scanValue        // a character that is neither whitespace nor in a comment
+	scanNone         // only whitespace and comments, to the end of the source
+)
+
+// valueScan walks a source's leading whitespace and comments and says
+// whether anything else follows: the question hasValue answers of a text
+// and CheckReader of a reader. It walks the bytes it is given and, when
+// they do not answer, goes on from where it stopped once given more, so a
+// source is read only as far as its leading trivia runs.
+type valueScan struct {
+	at   int  // the byte the walk has reached
+	mode byte // 0 outside a comment, '/' inside a line comment, '*' inside a block comment
+}
+
+// scan walks src, the source's bytes read so far, from where the walk
+// stopped; end says whether they are all of it. Decoded to runes because
+// the whitespace JSON5 accepts is not all ASCII: NBSP, BOM, the Unicode Zs
+// class and U+2028/U+2029 are multi-byte. A byte that is not UTF-8 reads
+// as U+FFFD, as a conversion to runes reads it.
+func (v *valueScan) scan(src []byte, end bool) int {
+	n := len(src)
+	for {
+		switch v.mode {
+		case '/':
+			// A line comment runs to the next line terminator, or the end.
+			for v.at < n {
+				if !end && !utf8.FullRune(src[v.at:]) {
+					return scanMore
+				}
+				c, size := utf8.DecodeRune(src[v.at:])
+				if isJSON5LineEnd(c) {
+					break
+				}
+				v.at += size
+			}
+			if v.at >= n {
+				if end {
+					return scanNone
+				}
+				return scanMore
+			}
+			v.mode = 0
+		case '*':
+			// A block comment runs to the first `*/` after its opening.
+			k := bytes.Index(src[v.at:], []byte("*/"))
+			if k < 0 {
+				if end {
+					return scanValue // unterminated: leave it to unterminated_comment
+				}
+				// A `*` the bytes end on may begin the `*/`.
+				v.at = max(v.at, n-1)
+				return scanMore
+			}
+			v.at += k + 2
+			v.mode = 0
+		default:
+			if v.at >= n {
+				if end {
+					return scanNone
+				}
+				return scanMore
+			}
+			if !end && !utf8.FullRune(src[v.at:]) {
+				return scanMore
+			}
+			c, size := utf8.DecodeRune(src[v.at:])
+			if isJSON5Space(c) {
+				v.at += size
+				continue
+			}
+			if c == '/' {
+				if v.at+1 >= n {
+					if !end {
+						return scanMore
+					}
+					return scanValue
+				}
+				switch src[v.at+1] {
+				case '/':
+					v.at += 2
+					v.mode = '/'
+					continue
+				case '*':
+					v.at += 2
+					v.mode = '*'
+					continue
+				}
+			}
+			// Anything else begins something. Whether it is a VALID value
+			// is the parser's question, not this one.
+			return scanValue
+		}
+	}
+}
+
 // hasValue reports whether src contains anything that could begin a
 // value, as opposed to only whitespace and comments. JSON5 requires a
 // top-level value, and a comments-only document is exactly what
@@ -990,7 +1291,8 @@ func Parse(j *tabnas.Tabnas, src string) (any, error) {
 // JSON5 *string* whose contents look like a comment, which stripping
 // would wrongly report as empty. Here the leading quote is simply a
 // non-trivia character, so the scan stops on it and answers true without
-// ever looking inside.
+// ever looking inside. It is the walk CheckReader makes of a reader
+// (valueScan), over the whole text.
 //
 // An unterminated block comment answers TRUE on purpose. `/* x` contains
 // no value, but the engine's own unterminated_comment is the more useful
@@ -1008,53 +1310,8 @@ func Parse(j *tabnas.Tabnas, src string) (any, error) {
 // rather than json5_no_value -- the `# comment` row of
 // ../test/spec/options.tsv.
 func hasValue(src string) bool {
-	// Decoded to runes because the whitespace JSON5 accepts is not all
-	// ASCII: NBSP, BOM, the Unicode Zs class and U+2028/U+2029 are
-	// multi-byte, and a byte scan would not recognise them.
-	rs := []rune(src)
-	n := len(rs)
-	i := 0
-
-	for i < n {
-		c := rs[i]
-
-		if isJSON5Space(c) {
-			i++
-			continue
-		}
-
-		if c == '/' && i+1 < n {
-			d := rs[i+1]
-			if d == '/' {
-				// Line comment: runs to the next line terminator, or the end.
-				i += 2
-				for i < n && !isJSON5LineEnd(rs[i]) {
-					i++
-				}
-				continue
-			}
-			if d == '*' {
-				end := -1
-				for k := i + 2; k+1 < n; k++ {
-					if rs[k] == '*' && rs[k+1] == '/' {
-						end = k
-						break
-					}
-				}
-				if end < 0 {
-					return true // unterminated: leave it to unterminated_comment
-				}
-				i = end + 2
-				continue
-			}
-		}
-
-		// Anything else begins something. Whether it is a VALID value is
-		// the parser's question, not this one.
-		return true
-	}
-
-	return false
+	var scan valueScan
+	return scan.scan([]byte(src), true) != scanNone
 }
 
 func isJSON5Space(c rune) bool {

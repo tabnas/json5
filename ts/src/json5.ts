@@ -240,10 +240,58 @@ const isDigit = (ch: string | undefined) =>
 
 const hex2Re = /^[0-9A-Fa-f]{2}$/
 
-// What the string literal opening at `start` holds, walked the way the
+// Whether the lexer holds the character at `i` of `lex.src`, reading the
+// window on where `i` lies past it. In a parse from a reader a window at a
+// time (`lex.window`, admin ADR-30), `lex.src` is the window's text while a
+// token is cut, and `lex.pnt` counts from the window's start; the window
+// may end inside the token. Where `i` lies past it, the window is asked to
+// reach twice as far past `from`, the token's start, as has been read, so a
+// long token costs its length to read and not its square, and `lex.src` is
+// the grown window, whose positions do not move while a token is cut. So
+// every read here is of the text the whole source has at that place. In a
+// whole text `lex.fill` only answers.
+function held(lex: Lex, from: number, i: number): boolean {
+  const src: string = (lex as any).src
+  if (i < src.length) return true
+  const read = i - from
+  ;(lex as any).fill?.(Math.max(read + 1, 2 * read))
+  return i < (lex as any).src.length
+}
+
+// The characters a number is written in: an ASCII letter (a base marker, a
+// hex digit, an exponent, or a keyword such as `Infinity`) or digit, a
+// sign, or a point.
+const isNumberChar = (ch: string | undefined) =>
+  undefined !== ch &&
+  (('0' <= ch && ch <= '9') ||
+    ('a' <= ch && ch <= 'z') ||
+    ('A' <= ch && ch <= 'Z') ||
+    '+' === ch ||
+    '-' === ch ||
+    '.' === ch)
+
+// Read the window on as far as the text check reads at the point: the run
+// of a number's characters there and the character after it, or to the end
+// of the source, so that a keyword or a value regex judged on the window
+// answers what it answers of the whole source. Every keyword the check can
+// meet (one that does not begin an IdentifierName, such as `-Infinity`)
+// and every match of a value regex the grammar declares is a run of a
+// number's characters (`value-definitions-read-a-numbers-characters` in
+// test/window.test.ts).
+function holdText(lex: Lex): void {
+  const from = (lex as any).pnt.sI
+  for (
+    let end = from;
+    held(lex, from, end) && isNumberChar((lex as any).src[end]);
+    end++
+  );
+}
+
+// What the string literal opening at the point holds, walked the way the
 // string check has always walked it: an escape takes the character after
 // it along, and the walk ends at the closing quote or the end of the
-// source. The answer is a set of these two bits.
+// source. It reads through the window (`held`), as far as the string runs.
+// The answer is a set of these two bits.
 //
 //   FORBIDDEN  an escape ES5.1 refuses (`\1`..`\9`, `\0` before a digit,
 //              `\u{`): the string is refused at its quote
@@ -253,19 +301,22 @@ const hex2Re = /^[0-9A-Fa-f]{2}$/
 const FORBIDDEN = 1
 const CONTINUED = 2
 
-function scanString(src: string, start: number, escChar: string): number {
-  const quote = src[start]
+function scanString(lex: Lex, escChar: string): number {
+  const start: number = (lex as any).pnt.sI
+  const at = (i: number) =>
+    held(lex, start, i) ? ((lex as any).src[i] as string) : undefined
+  const quote = at(start)
   let found = 0
-  for (let i = start + 1; i < src.length; i++) {
-    const c = src[i]
+  for (let i = start + 1; held(lex, start, i); i++) {
+    const c = at(i)
     if (c === quote) break
     if (c !== escChar) continue
-    const n = src[i + 1]
+    const n = at(i + 1)
     if (undefined === n) break
     if (
-      ('0' === n && isDigit(src[i + 2])) ||
+      ('0' === n && isDigit(at(i + 2))) ||
       ('1' <= n && n <= '9') ||
-      ('u' === n && '{' === src[i + 2])
+      ('u' === n && '{' === at(i + 2))
     ) {
       found |= FORBIDDEN
     } else if (isLineTerminator(n)) {
@@ -298,16 +349,24 @@ function scanString(src: string, start: number, escChar: string): number {
 // the engine's row characters (LF, LS and PS, so CRLF too); a lone CR is
 // not one, inside a string or out, and counts as the two columns the
 // source has. The grammar declares no `string.replace`, so there is no
-// replace step.
+// replace step. It reads through the window (`held`), so a string the
+// window ends inside reads as the whole text has it.
 function readContinuedString(lex: Lex): any {
   const pnt: any = (lex as any).pnt
-  const src: string = (lex as any).src
   const cfg: any = (lex as any).cfg
   const scfg = cfg.string
   const lineChars = cfg.line.chars
   const rowChars = cfg.line.rowChars
   const start = pnt.sI
-  const quote = src[start]
+  // The character at `i`, and the text from `a` to `b`, as the whole
+  // source has them, cut at its end.
+  const at = (i: number) =>
+    held(lex, start, i) ? ((lex as any).src[i] as string) : undefined
+  const text = (a: number, b: number): string => {
+    held(lex, start, b - 1)
+    return (lex as any).src.substring(a, b)
+  }
+  const quote = at(start) as string
   const multiLine = !!scfg.multiChars[quote]
 
   let sI = start + 1
@@ -316,20 +375,22 @@ function readContinuedString(lex: Lex): any {
   let val = ''
 
   // An error inside the string is sited where it stands: on the offending
-  // character, or on the backslash of a malformed escape.
+  // character, or on the backslash of a malformed escape. Its span is the
+  // whole text's, cut at the end of the source.
   const bad = (why: string, at: number, atCI: number, end: number) => {
+    held(lex, start, end - 1)
     pnt.sI = at
     pnt.rI = rI
     pnt.cI = atCI
     return (lex as any).bad(why, at, end)
   }
 
-  while (sI < src.length) {
-    const c = src[sI]
+  while (held(lex, start, sI)) {
+    const c = at(sI) as string
 
     if (c === quote) {
       const token = (lex as any).token(
-        '#ST', val, src.substring(start, sI + 1), pnt)
+        '#ST', val, text(start, sI + 1), pnt)
       pnt.sI = sI + 1
       pnt.rI = rI
       pnt.cI = cI + 1
@@ -337,11 +398,11 @@ function readContinuedString(lex: Lex): any {
     }
 
     if (c === scfg.escChar) {
-      const n = src[sI + 1]
+      const n = at(sI + 1)
       if (undefined === n) break
 
       if (isLineTerminator(n)) {
-        const crlf = '\r' === n && '\n' === src[sI + 2]
+        const crlf = '\r' === n && '\n' === at(sI + 2)
         sI += crlf ? 3 : 2
         if (rowChars[crlf ? '\n' : n]) {
           rI++
@@ -361,7 +422,7 @@ function readContinuedString(lex: Lex): any {
       }
 
       if ('x' === n && !scfg.escapeStrict) {
-        const hex = src.substring(sI + 2, sI + 4)
+        const hex = text(sI + 2, sI + 4)
         if (!hex2Re.test(hex)) return bad('invalid_ascii', sI, cI, sI + 4)
         val += String.fromCharCode(parseInt(hex, 16))
         sI += 4
@@ -370,7 +431,7 @@ function readContinuedString(lex: Lex): any {
       }
 
       if ('u' === n) {
-        const hex = src.substring(sI + 2, sI + 6)
+        const hex = text(sI + 2, sI + 6)
         if (!hex4Re.test(hex)) return bad('invalid_unicode', sI, cI, sI + 6)
         val += String.fromCharCode(parseInt(hex, 16))
         sI += 6
@@ -402,8 +463,9 @@ function readContinuedString(lex: Lex): any {
     cI++
   }
 
-  // Unterminated: sited on the opening quote, as the engine sites it.
-  return (lex as any).bad('unterminated_string', start, src.length)
+  // Unterminated: sited on the opening quote, as the engine sites it. The
+  // walk read to the end of the source, so the window holds it all.
+  return (lex as any).bad('unterminated_string', start, (lex as any).src.length)
 }
 
 // Plugin implementation.
@@ -414,13 +476,28 @@ const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
   // the finished token. Such a string never reaches stringCheck, so one
   // that also holds a forbidden escape is refused here instead, the same
   // way and at the same place: `unexpected`, on the quote. Anywhere else
-  // fixedCheck does nothing, and every other string is the engine's.
+  // fixedCheck makes no token, and every other string is the engine's.
+  //
+  // In a parse from a reader it also reads the window on, first, as far
+  // as any check of this grammar reads at this token: a string to its
+  // closing quote (the scan, as the string check reads it), and where the
+  // text check may judge the token, what it reads (holdText). The engine
+  // cuts a token again over a wider window when a matcher's read reached
+  // the window's end, unless the source has ended; a check that read on in
+  // the middle of the cut, to the end of the source, would keep the answer
+  // a matcher before it gave over the shorter window. Read on first, every
+  // matcher of the cut reads the same window.
   const fixedCheck = (lex: Lex) => {
     const pnt: any = (lex as any).pnt
-    const src: string = (lex as any).src
     const scfg: any = (lex as any).cfg?.string
-    if (!pnt || !scfg?.quoteMap?.[src[pnt.sI]]) return undefined
-    const found = scanString(src, pnt.sI, scfg.escChar || '\\')
+    if (!pnt || !held(lex, pnt.sI, pnt.sI)) return undefined
+    const src: string = (lex as any).src
+    if (!scfg?.quoteMap?.[src[pnt.sI]]) {
+      const r = String.fromCodePoint(src.codePointAt(pnt.sI) as number)
+      if (!isIdentifierStart(r)) holdText(lex)
+      return undefined
+    }
+    const found = scanString(lex, scfg.escChar || '\\')
     if (!(found & CONTINUED)) return undefined
     if (found & FORBIDDEN) {
       const token = (lex as any).bad('unexpected', pnt.sI, pnt.sI + 1)
@@ -433,11 +510,15 @@ const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
   // IdentifierName AND do not correspond to a registered value-def
   // keyword / regex. Returning { done: true, token: undefined } halts
   // lexing at this position so the parser raises "unexpected character".
+  //
+  // It reads through the window as far as its answer needs (holdText): the
+  // first character, and the run of a number's characters at the point and
+  // the character after it, which holds any keyword and any value regex
+  // match it can meet. fixedCheck has read that far already.
   const textCheck = (lex: Lex) => {
     const pnt: any = (lex as any).pnt
+    if (!pnt || !held(lex, pnt.sI, pnt.sI)) return undefined
     const src: string = (lex as any).src
-    if (!pnt || pnt.sI >= src.length) return undefined
-    const forward = src.slice(pnt.sI)
     // Read a CODE POINT, not a code unit. `forward[0]` on a JavaScript
     // string is one UTF-16 code unit, so a character outside the Basic
     // Multilingual Plane presents its high surrogate, which belongs to
@@ -446,8 +527,10 @@ const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
     // MATHEMATICAL SCRIPT CAPITAL A is Lu. A lone surrogate reads as
     // itself and is still refused, and `decodeIdentifierName` already
     // walks code points, so the two halves now agree.
-    const r = String.fromCodePoint(forward.codePointAt(0) as number)
+    const r = String.fromCodePoint(src.codePointAt(pnt.sI) as number)
     if (isIdentifierStart(r)) return undefined
+    holdText(lex)
+    const forward: string = (lex as any).src.slice(pnt.sI)
     const cfg: any = (lex as any).cfg
     const def = cfg?.value?.def || {}
     for (const name of Object.keys(def)) {
@@ -473,11 +556,10 @@ const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
   // textCheck uses.
   const stringCheck = (lex: Lex) => {
     const pnt: any = (lex as any).pnt
-    const src: string = (lex as any).src
-    if (!pnt || pnt.sI >= src.length) return undefined
+    if (!pnt || !held(lex, pnt.sI, pnt.sI)) return undefined
     const cfg: any = (lex as any).cfg
-    if (!cfg?.string?.quoteMap?.[src[pnt.sI]]) return undefined
-    if (scanString(src, pnt.sI, cfg.string.escChar || '\\') & FORBIDDEN) {
+    if (!cfg?.string?.quoteMap?.[(lex as any).src[pnt.sI]]) return undefined
+    if (scanString(lex, cfg.string.escChar || '\\') & FORBIDDEN) {
       return { done: true, token: undefined }
     }
     return undefined
@@ -604,74 +686,238 @@ const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
     })
   }
 
-  if (options.requireValue) {
-    const parser: any = tn.internal().parser
-    const origStart: (...args: any[]) => any = parser.start.bind(parser)
-    parser.start = (src: string, ...rest: any[]) => {
-      if ('' === src || null == src) {
-        const err: any = new Error('JSON5 input must contain a value')
-        err.code = 'json5_empty'
-        err.details = { src }
-        throw err
-      }
-      // Slash forms ONLY, deliberately, and the `false` says so at the
-      // call rather than in a comment on the scan. A hash-comment-only
-      // source is not `json5_no_value` here: it reaches the rules and
-      // fails on the comment with the engine's own `unexpected`, which
-      // is what all three runtimes do and what the `# comment` row of
-      // test/spec/options.tsv pins. Teaching THIS branch the hash form
-      // would change that agreed answer rather than repair anything.
-      if (!hasValue(src, false)) {
-        const err: any = new Error('JSON5 input must contain a value')
-        err.code = 'json5_no_value'
-        err.details = { src }
-        throw err
-      }
-      return origStart(src, ...rest)
+  requireValue(tn, options)
+}
+
+// The requireValue rule, on the instance's own `parse` and `parseReader`.
+//
+// With the option on (the default) an empty source is `json5_empty` and
+// one of only whitespace and slash comments `json5_no_value`; with it off,
+// every such source resolves to the grammar's declared empty result. The
+// rule wraps the instance's `parse` and `parseReaderWithSizes`, through
+// which `parseReader` reads, rather than the engine's `parser.start`: the
+// engine replaces its parser whenever the instance's options change
+// (`tn.options(...)`, which a host such as transduce's sources calls, and
+// `make` below, which declares the window), so a wrapper on the parser was
+// dropped with it, and in a parse from a reader a window at a time the
+// engine hands `parser.start` an empty `src` and the source in a window.
+// The instance's own methods survive both.
+//
+// From a reader, the rule reads only as far as its answer needs, the
+// leading whitespace and comments and the first character after them
+// (`readLeading`), and the parse then reads the rest, a window at a time
+// where the instance declares `lex.window`. A read that fails, and bytes
+// that are not UTF-8, are the parse's to report (`unreadable`).
+function requireValue(tn: Tabnas, options: Json5Options): void {
+  const parse = tn.parse.bind(tn)
+  const parseReaderWithSizes = tn.parseReaderWithSizes.bind(tn)
+
+  // Slash forms ONLY with the option on, deliberately, and the `false`
+  // says so at the call rather than in a comment on the scan. A
+  // hash-comment-only source is not `json5_no_value` there: it reaches the
+  // rules and fails on the comment with the engine's own `unexpected`,
+  // which is what all three runtimes do and what the `# comment` row of
+  // test/spec/options.tsv pins. With the option off, the scan is told
+  // which comment forms this configuration HAS: with hashComment on, `#`
+  // runs to the end of the line and is trivia exactly as `//` is, so
+  // `'# c'` resolves to the declared empty result like every other
+  // no-value source. Until 2026-09-21 it did not, and TypeScript fell out
+  // with `undefined` where both ports answered the declared empty result.
+  const hashComment = !options.requireValue && !!options.hashComment
+
+  // Without the option, a source holding no value must resolve to the
+  // SAME declared empty result that `''` already resolves to. The engine
+  // short-circuits only on an EXACTLY empty source; a whitespace- or
+  // comments-only source reached the rules instead, matched no value, and
+  // fell out as `undefined`, two answers to one question from a single
+  // declaration, and the whole of the TS/Go difference once recorded
+  // against this option. Such a source is parsed as `''`, through the
+  // engine's own empty-source path, so the grammar declares the empty
+  // result once.
+  const noValue = (code: string, src: string, meta: any, parent_ctx: any) => {
+    if (!options.requireValue) return parse('', meta, parent_ctx)
+    const err: any = new Error('JSON5 input must contain a value')
+    err.code = code
+    err.details = { src }
+    throw err
+  }
+
+  ;(tn as any).parse = (src: any, meta?: any, parent_ctx?: any) => {
+    if ('string' !== typeof src) return parse(src, meta, parent_ctx)
+    if ('' === src) {
+      return options.requireValue
+        ? noValue('json5_empty', src, meta, parent_ctx)
+        : parse(src, meta, parent_ctx)
     }
-  } else {
-    // Without requireValue, a source holding no value must resolve to the SAME
-    // declared empty result that `''` already resolves to.
-    //
-    // It did not. The engine short-circuits only on an EXACTLY empty source
-    // (parser.ts: `if ('' === src)`), returning `cfg.lex.emptyResult` — null,
-    // as this grammar declares. A whitespace- or comments-only source reached
-    // the rules instead, matched no value, and fell out as `undefined`. So
-    // `''` answered null while `'   '` and `'// x'` answered undefined: two
-    // answers to one question, from a single declaration.
-    //
-    // That inconsistency is also the whole of the TS/Go difference recorded
-    // against this option. Go answers nil for every no-value source, `''`
-    // included, so making TypeScript self-consistent removes the divergence
-    // as a side effect, with no change to the port.
-    //
-    // hasValue is reused rather than reimplemented, which keeps its one
-    // subtlety in one place: `/* x` answers YES on purpose, so an unterminated
-    // comment still raises the engine's `unterminated_comment` here instead of
-    // being silently swallowed as "no value".
-    //
-    // The scan is told which comment forms this configuration HAS. With
-    // hashComment on, `#` runs to the end of the line and is trivia
-    // exactly as `//` is, so `'# c'` is a no-value source and must
-    // resolve to the declared empty result like every other one. Until
-    // 2026-09-21 it did not: `#` was not trivia to the scan, the source
-    // reached the rules, and TypeScript fell out with `undefined` where
-    // both ports answered the declared empty result. That was recorded in
-    // DIVERGENCE.md as unrepairable, on the ground that teaching the scan
-    // the hash form would also turn the requireValue control row from
-    // `unexpected` into `json5_no_value`. It does not: the two branches
-    // call the scan separately, so this one can know the hash form while
-    // the branch above keeps the slash-only scan its control row needs.
-    const parser: any = tn.internal().parser
-    const origStart: (...args: any[]) => any = parser.start.bind(parser)
-    parser.start = (src: string, ...rest: any[]) => {
-      if (null != src && '' !== src && !hasValue(src, !!options.hashComment)) {
-        // Delegate to the engine's own empty-source path rather than naming
-        // the value here: the grammar declares emptyResult once, and a second
-        // copy of it would be the next thing to drift out of step.
-        return origStart('', ...rest)
+    if (!hasValue(src, hashComment)) {
+      return noValue('json5_no_value', src, meta, parent_ctx)
+    }
+    return parse(src, meta, parent_ctx)
+  }
+
+  ;(tn as any).parseReaderWithSizes = (
+    reader: any,
+    sizes: any,
+    meta?: any,
+    parent_ctx?: any,
+  ) => {
+    if (null == reader || 'function' !== typeof reader.read) {
+      return parseReaderWithSizes(reader, sizes, meta, parent_ctx)
+    }
+    const lead = readLeading(reader, hashComment)
+    if (NONE === lead.verdict) {
+      return '' === lead.text
+        ? options.requireValue
+          ? noValue('json5_empty', '', meta, parent_ctx)
+          : parse('', meta, parent_ctx)
+        : noValue('json5_no_value', lead.text, meta, parent_ctx)
+    }
+    return parseReaderWithSizes(lead.reader, sizes, meta, parent_ctx)
+  }
+}
+
+// A synchronous pull reader of bytes, as `tn.parseReader` takes one.
+type Reader = { read(buf: Uint8Array): number }
+
+// What a read that did not give bytes gave instead: it threw, or it
+// answered a count it cannot have.
+type ReadEnd = { error: unknown } | { count: number }
+
+// Read `reader`'s leading whitespace and comments, as far as the
+// requireValue scan needs to answer (`ValueScan`): the answer, the text
+// read when it is NONE, and a reader that gives every byte `reader` gives,
+// the ones read here first, and then what a read here ended on, for the
+// parse. Bytes that are not UTF-8, and a read that fails, end the scan
+// with VALUE, leaving them to the parse.
+function readLeading(
+  reader: Reader,
+  hashComment: boolean,
+): { verdict: number; text: string; reader: Reader } {
+  const chunks: Uint8Array[] = []
+  const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+  const buf = new Uint8Array(512)
+  const scan = new ValueScan(hashComment)
+  let text = ''
+  for (;;) {
+    let n: number
+    try {
+      n = reader.read(buf)
+    } catch (error) {
+      return { verdict: VALUE, text, reader: replay(chunks, undefined, { error }) }
+    }
+    if (!(Number.isInteger(n) && 0 <= n && n <= buf.length)) {
+      return { verdict: VALUE, text, reader: replay(chunks, undefined, { count: n }) }
+    }
+    const end = 0 === n
+    if (0 < n) chunks.push(buf.slice(0, n))
+    try {
+      text += decoder.decode(buf.subarray(0, n), { stream: !end })
+    } catch {
+      return { verdict: VALUE, text, reader: replay(chunks, end ? undefined : reader) }
+    }
+    const verdict = scan.scan(text, end)
+    if (MORE !== verdict) {
+      return { verdict, text, reader: replay(chunks, end ? undefined : reader) }
+    }
+  }
+}
+
+// A reader that gives `chunks`, then what a read ended on, if anything,
+// then what `rest` gives.
+function replay(chunks: Uint8Array[], rest?: Reader, ended?: ReadEnd): Reader {
+  let i = 0
+  let at = 0
+  return {
+    read(buf: Uint8Array): number {
+      for (; i < chunks.length; i++, at = 0) {
+        const chunk = chunks[i]
+        if (at < chunk.length) {
+          const n = Math.min(buf.length, chunk.length - at)
+          buf.set(chunk.subarray(at, at + n))
+          at += n
+          return n
+        }
       }
-      return origStart(src, ...rest)
+      if (undefined !== ended) {
+        const end = ended
+        ended = undefined
+        if ('error' in end) throw end.error
+        return end.count
+      }
+      return undefined === rest ? 0 : rest.read(buf)
+    },
+  }
+}
+
+// The requireValue scan's answers.
+const MORE = 0 // what has been read does not answer: read on
+const VALUE = 1 // a character that is neither whitespace nor in a comment
+const NONE = 2 // only whitespace and comments, to the end of the source
+
+// The walk of a source's leading whitespace and comments, which says
+// whether anything else follows: the question hasValue answers of a text
+// and readLeading of a reader. It walks the text it is given and, when that
+// does not answer, goes on from where it stopped once given more, so a
+// source is read only as far as its leading trivia runs.
+class ValueScan {
+  at = 0 // the code unit the walk has reached
+  within = 0 // 0 outside a comment, 1 in a line comment, 2 in a block comment
+
+  constructor(readonly hashComment: boolean) {}
+
+  // Walk `src`, the source read so far, from where the walk stopped; `end`
+  // says whether it is all of it.
+  scan(src: string, end: boolean): number {
+    const n = src.length
+    for (;;) {
+      if (1 === this.within) {
+        // Line comment: runs to the next line terminator, or to the end.
+        while (this.at < n && !isLineEnd(src[this.at])) {
+          this.at++
+        }
+        if (this.at >= n) return end ? NONE : MORE
+        this.within = 0
+      } else if (2 === this.within) {
+        const close = src.indexOf('*/', this.at)
+        if (close < 0) {
+          // Unterminated: leave it to unterminated_comment.
+          if (end) return VALUE
+          // A `*` the text ends on may begin the `*/`.
+          this.at = Math.max(this.at, n - 1)
+          return MORE
+        }
+        this.at = close + 2
+        this.within = 0
+      } else {
+        if (this.at >= n) return end ? NONE : MORE
+        const c = src[this.at]
+        if (isSpace(c)) {
+          this.at++
+          continue
+        }
+        if (this.hashComment && '#' === c) {
+          this.at++
+          this.within = 1
+          continue
+        }
+        if ('/' === c) {
+          if (this.at + 1 >= n && !end) return MORE
+          const d = src[this.at + 1]
+          if ('/' === d) {
+            this.at += 2
+            this.within = 1
+            continue
+          }
+          if ('*' === d) {
+            this.at += 2
+            this.within = 2
+            continue
+          }
+        }
+        // Anything else begins something. Whether it is a VALID value is
+        // the parser's question, not this one.
+        return VALUE
+      }
     }
   }
 }
@@ -693,6 +939,9 @@ const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
 // no value, but the engine's own `unterminated_comment` is the more
 // useful diagnostic and this declines to shadow it.
 //
+// It is the walk readLeading makes of a reader (`ValueScan`), over the
+// whole text.
+//
 // `hashComment` says whether THIS configuration also has the `#` form.
 // It is a parameter rather than a read of the options because the two
 // callers want different answers: the requireValue guard passes `false`,
@@ -700,54 +949,9 @@ const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
 // the engine's own `unexpected`, and the requireValue-off short-circuit
 // passes the option, so the same source counts as trivia and resolves to
 // the declared empty result. Both answers are measured; see
-// test/spec/options.tsv.
+// test/spec/options.tsv. (`requireValue` above makes the two calls.)
 function hasValue(src: string, hashComment: boolean): boolean {
-  const n = src.length
-  let i = 0
-
-  while (i < n) {
-    const c = src[i]
-
-    if (isSpace(c)) {
-      i++
-      continue
-    }
-
-    if (hashComment && '#' === c) {
-      // Line comment: runs to the next line terminator, or to the end.
-      i++
-      while (i < n && !isLineEnd(src[i])) {
-        i++
-      }
-      continue
-    }
-
-    if ('/' === c && i + 1 < n) {
-      const d = src[i + 1]
-      if ('/' === d) {
-        // Line comment: runs to the next line terminator, or to the end.
-        i += 2
-        while (i < n && !isLineEnd(src[i])) {
-          i++
-        }
-        continue
-      }
-      if ('*' === d) {
-        const end = src.indexOf('*/', i + 2)
-        if (end < 0) {
-          return true // unterminated: leave it to unterminated_comment
-        }
-        i = end + 2
-        continue
-      }
-    }
-
-    // Anything else begins something. Whether it is a VALID value is the
-    // parser's question, not this one.
-    return true
-  }
-
-  return false
+  return NONE !== new ValueScan(hashComment).scan(src, true)
 }
 
 // JSON5 whitespace: the ECMAScript set. \s covers the usual suspects
@@ -795,12 +999,28 @@ Json5.defaults = {
   strictValue: true,
 } as Json5Options
 
+// Build a JSON5 parser whole: jsonic's base with the plugin installed, as
+// `new Tabnas().use(jsonic).use(Json5, options)` builds it, and with
+// `lex.window` declared, so that `tn.parseReader` reads a reader a window at
+// a time rather than whole (admin ADR-30). The checks this grammar installs
+// read the source only through the lexer's window, and jsonic's base is the
+// engine's own matchers. The window is declared here, on the parser this
+// package makes whole, and not in `Json5`, which a host may install beneath
+// matchers of its own. The requireValue rule rides on the instance's own
+// `parse` and `parseReader`, so it holds on the parser this returns, and
+// from a reader it reads only the leading whitespace and comments.
+function make(options: Partial<Json5Options> = {}): Tabnas {
+  const tn = new Tabnas().use(jsonic).use(Json5, options)
+  tn.options({ lex: { window: true } })
+  return tn
+}
+
 // VERSION is this package's version. It MUST equal package.json "version":
 // the release orchestrator rewrites both, and the version test fails the
 // build if they drift. Mirrors `const VERSION` in go/json5.go.
 const VERSION = '0.5.17'
 
-export { VERSION, Json5 }
+export { VERSION, Json5, make }
 
 export type { Json5Options }
 

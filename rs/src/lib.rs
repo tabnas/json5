@@ -507,8 +507,11 @@ struct StringEscapes {
 /// What the string literal opening at the start of `remaining` holds,
 /// walked the way the string check has always walked it: an escape takes
 /// the character after it along, and the walk ends at the closing quote
-/// or the end of the source. Mirrors `scanString` in `ts/src/json5.ts`.
-fn scan_string_escapes(remaining: &str, quote: char) -> StringEscapes {
+/// or the end of the text. Mirrors `scanString` in `ts/src/json5.ts`.
+/// With it, the byte just past the closing quote, or `None` where the
+/// text ends first: the string is unterminated, or runs on past what the
+/// lexer holds ([`scan_string_at`]).
+fn scan_string_escapes(remaining: &str, quote: char) -> (StringEscapes, Option<usize>) {
     let bytes = remaining.as_bytes();
     let mut found = StringEscapes::default();
     let mut i = quote.len_utf8();
@@ -516,7 +519,7 @@ fn scan_string_escapes(remaining: &str, quote: char) -> StringEscapes {
         let c = remaining[i..].chars().next().expect("inside the source");
         let size = c.len_utf8();
         if c == quote {
-            break;
+            return (found, Some(i + size));
         }
         if c != '\\' {
             i += size;
@@ -538,7 +541,68 @@ fn scan_string_escapes(remaining: &str, quote: char) -> StringEscapes {
         }
         i += size + escaped.len_utf8();
     }
-    found
+    (found, None)
+}
+
+/// Read the source on through the lexer's window until it holds more than
+/// `held` characters past the cursor, twice as many where it can, so that a
+/// long token costs its length to read and not its square. Answers whether
+/// the window grew: it does not once the source has ended. In a whole text
+/// the window is all of it, and nothing grows.
+fn read_on(lexer: &mut Lexer<'_>, held: usize) -> bool {
+    let before = lexer.window().len();
+    lexer.fill(held.saturating_mul(2).max(held + 1));
+    lexer.window().len() > before
+}
+
+/// Scan the string literal opening at the cursor through the lexer's
+/// window: where the window ends before the closing quote, it is read on
+/// and the string scanned again, so the scan sees what the whole source
+/// holds (`lex.window`, admin ADR-30). Answers what the string holds, and
+/// how many characters from the cursor it runs, through its closing quote
+/// or to the end of the source.
+fn scan_string_at(lexer: &mut Lexer<'_>, quote: char) -> (StringEscapes, usize) {
+    loop {
+        let window = lexer.window();
+        let (found, closed) = scan_string_escapes(window, quote);
+        if let Some(end) = closed {
+            return (found, window[..end].chars().count());
+        }
+        let held = window.chars().count();
+        if !read_on(lexer, held) {
+            return (found, held);
+        }
+    }
+}
+
+/// The characters a number is written in: an ASCII letter (a base marker,
+/// a hex digit, an exponent, or a keyword such as `Infinity`) or digit, a
+/// sign, or a point. A match of a value regex the grammar declares is a run
+/// of these.
+fn is_number_char(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'.')
+}
+
+/// Read the window on as far as the text check reads at the cursor: the
+/// run of a number's characters there and the character after it, or to
+/// the end of the source, so that a keyword or a value regex judged on the
+/// window answers what it answers of the whole source. Every keyword the
+/// check can meet (one that does not begin an `IdentifierName`, such as
+/// `-Infinity`) and every match of a value regex the grammar declares is a
+/// run of a number's characters
+/// (`the_value_definitions_read_a_numbers_characters` in
+/// `tests/reader_test.rs`).
+fn hold_text(lexer: &mut Lexer<'_>) {
+    loop {
+        let window = lexer.window();
+        let run = window
+            .bytes()
+            .take_while(|byte| is_number_char(*byte))
+            .count();
+        if run < window.len() || !read_on(lexer, run) {
+            return;
+        }
+    }
 }
 
 /// The string options the continuation reader reads, taken from the
@@ -639,18 +703,20 @@ enum ContinuedString {
 /// characters. It moves the cursor with the engine's own advance, so every
 /// row, column and offset after the string is the one the engine counts
 /// for the source as it is. The grammar declares no `string.replace`, so
-/// there is no replace step. Mirrors `readContinuedString` in
+/// there is no replace step. It reads the string through the lexer's
+/// window ([`scan_string_at`]), so a string the window ends inside reads as
+/// the whole source has it. Mirrors `readContinuedString` in
 /// `ts/src/json5.ts`.
 fn read_continued_string(lexer: &mut Lexer<'_>, syntax: &StringSyntax) -> LexCheckResult {
-    let remaining = lexer.remaining();
-    let Some(quote) = remaining
+    let Some(quote) = lexer
+        .window()
         .chars()
         .next()
         .filter(|quote| syntax.quotes.contains(*quote))
     else {
         return LexCheckResult::Continue;
     };
-    let found = scan_string_escapes(remaining, quote);
+    let (found, through) = scan_string_at(lexer, quote);
     if !found.continued {
         return LexCheckResult::Continue;
     }
@@ -660,7 +726,12 @@ fn read_continued_string(lexer: &mut Lexer<'_>, syntax: &StringSyntax) -> LexChe
     if found.forbidden {
         return LexCheckResult::native_token(lexer.bad("unexpected"));
     }
+    // The scan held the string through its closing quote. An escape the
+    // quote cuts short reads its hex digits, and an error its span, a few
+    // characters past the quote: hold those too.
+    lexer.fill(through + MAX_ESCAPE_CHARS);
     let start = lexer.point();
+    let remaining = lexer.window();
     match decode_continued_string(remaining, quote, syntax) {
         ContinuedString::Read {
             value,
@@ -692,6 +763,10 @@ fn read_continued_string(lexer: &mut Lexer<'_>, syntax: &StringSyntax) -> LexChe
         }
     }
 }
+
+/// The longest escape the decoder reads, `\uXXXX`: an escape at the end of
+/// a string reads no further past its closing quote.
+const MAX_ESCAPE_CHARS: usize = 6;
 
 /// Decode the string literal opening at the start of `remaining`, without
 /// moving the lexer: see [`read_continued_string`].
@@ -882,50 +957,144 @@ fn flush_surrogate(pending: &mut Option<u32>, out: &mut String) {
 /// short-circuit passes the option, so the same source counts as trivia
 /// and resolves to the declared empty result.
 ///
-/// Mirrors `hasValue` in `ts/src/json5.ts`.
+/// It is the walk [`check_reader`] makes of a reader ([`ValueScan`]), over
+/// the whole text. Mirrors `hasValue` in `ts/src/json5.ts`.
 fn has_value(src: &str, hash_comment: bool) -> bool {
-    let chars: Vec<char> = src.chars().collect();
-    let n = chars.len();
-    let mut i = 0;
-    while i < n {
-        let c = chars[i];
-        if is_json5_space(c) {
-            i += 1;
-            continue;
+    ValueScan::default().scan(src.as_bytes(), true, hash_comment) != Verdict::NoValue
+}
+
+/// What the walk of a source's leading whitespace and comments answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Verdict {
+    /// What has been read does not answer: read on.
+    More,
+    /// A character that is neither whitespace nor part of a comment.
+    Value,
+    /// Only whitespace and comments, to the end of the source.
+    NoValue,
+}
+
+/// Where the walk of [`ValueScan`] stands.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum Within {
+    /// Outside a comment.
+    #[default]
+    Space,
+    /// Inside a line comment.
+    Line,
+    /// Inside a block comment.
+    Block,
+}
+
+/// The walk of a source's leading whitespace and comments, which says
+/// whether anything else follows: the question [`has_value`] answers of a
+/// text and [`check_reader`] of a reader. It walks the bytes it is given
+/// and, when they do not answer, goes on from where it stopped once given
+/// more, so a source is read only as far as its leading trivia runs.
+#[derive(Debug, Clone, Copy, Default)]
+struct ValueScan {
+    /// The byte the walk has reached.
+    at: usize,
+    within: Within,
+}
+
+/// The character `bytes` starts with and its length, or `None` where the
+/// bytes hold only the start of one and more may follow. A byte that is not
+/// UTF-8 reads as U+FFFD, one byte long.
+fn first_char(bytes: &[u8], end: bool) -> Option<(char, usize)> {
+    let head = &bytes[..bytes.len().min(4)];
+    let valid = match std::str::from_utf8(head) {
+        Ok(text) => text,
+        Err(error) if error.valid_up_to() > 0 => {
+            std::str::from_utf8(&head[..error.valid_up_to()]).expect("the prefix is UTF-8")
         }
-        if hash_comment && c == '#' {
-            // Line comment: runs to the next line terminator, or the end.
-            i += 1;
-            while i < n && !is_line_terminator(chars[i]) {
-                i += 1;
-            }
-            continue;
-        }
-        if c == '/' && i + 1 < n {
-            let d = chars[i + 1];
-            if d == '/' {
-                // Line comment: runs to the next line terminator, or the end.
-                i += 2;
-                while i < n && !is_line_terminator(chars[i]) {
-                    i += 1;
+        Err(error) if error.error_len().is_none() && !end => return None,
+        Err(_) => return Some(('\u{FFFD}', 1)),
+    };
+    let c = valid.chars().next().expect("a character");
+    Some((c, c.len_utf8()))
+}
+
+impl ValueScan {
+    /// Walk `src`, the source's bytes read so far, from where the walk
+    /// stopped; `end` says whether they are all of it.
+    fn scan(&mut self, src: &[u8], end: bool, hash_comment: bool) -> Verdict {
+        let n = src.len();
+        let more = if end { Verdict::NoValue } else { Verdict::More };
+        loop {
+            match self.within {
+                Within::Line => {
+                    // A line comment runs to the next line terminator, or
+                    // the end.
+                    while self.at < n {
+                        let Some((c, size)) = first_char(&src[self.at..], end) else {
+                            return Verdict::More;
+                        };
+                        if is_line_terminator(c) {
+                            break;
+                        }
+                        self.at += size;
+                    }
+                    if self.at >= n {
+                        return more;
+                    }
+                    self.within = Within::Space;
                 }
-                continue;
-            }
-            if d == '*' {
-                let end =
-                    (i + 2..n.saturating_sub(1)).find(|&k| chars[k] == '*' && chars[k + 1] == '/');
-                let Some(end) = end else {
-                    return true; // unterminated: leave it to unterminated_comment
-                };
-                i = end + 2;
-                continue;
+                Within::Block => {
+                    // A block comment runs to the first `*/` after its
+                    // opening.
+                    match src[self.at..].windows(2).position(|pair| pair == b"*/") {
+                        Some(k) => {
+                            self.at += k + 2;
+                            self.within = Within::Space;
+                        }
+                        None if end => return Verdict::Value, // unterminated: leave it to unterminated_comment
+                        None => {
+                            // A `*` the bytes end on may begin the `*/`.
+                            self.at = self.at.max(n.saturating_sub(1));
+                            return Verdict::More;
+                        }
+                    }
+                }
+                Within::Space => {
+                    if self.at >= n {
+                        return more;
+                    }
+                    let Some((c, size)) = first_char(&src[self.at..], end) else {
+                        return Verdict::More;
+                    };
+                    if is_json5_space(c) {
+                        self.at += size;
+                        continue;
+                    }
+                    if hash_comment && c == '#' {
+                        self.at += 1;
+                        self.within = Within::Line;
+                        continue;
+                    }
+                    if c == '/' {
+                        match src.get(self.at + 1) {
+                            None if !end => return Verdict::More,
+                            Some(b'/') => {
+                                self.at += 2;
+                                self.within = Within::Line;
+                                continue;
+                            }
+                            Some(b'*') => {
+                                self.at += 2;
+                                self.within = Within::Block;
+                                continue;
+                            }
+                            _ => {}
+                        }
+                    }
+                    // Anything else begins something. Whether it is a VALID
+                    // value is the parser's question, not this one.
+                    return Verdict::Value;
+                }
             }
         }
-        // Anything else begins something. Whether it is a VALID value is
-        // the parser's question, not this one.
-        return true;
     }
-    false
 }
 
 /// The ECMAScript `\s` class, which is the JSON5 whitespace and line
@@ -1278,11 +1447,27 @@ pub fn json5(parser: &mut Tabnas, options: &Json5Options) -> Result<(), PluginEr
     // A string that holds a line continuation is its own: at the string's
     // opening quote it reads it (`read_continued_string`) and returns the
     // finished token, or refuses it, as the string check would, when it
-    // also holds a forbidden escape. Anywhere else it does nothing, and
+    // also holds a forbidden escape. Anywhere else it makes no token, and
     // every other string is the engine's.
+    //
+    // In a parse from a reader it also reads the window on, first, as far
+    // as any check of this crate reads at this token: a string to its
+    // closing quote (the scan), and where the text check may judge the
+    // token, what it reads ([`hold_text`]). The engine cuts a token again
+    // over a wider window when a matcher's read reached the window's end,
+    // unless the source has ended; a check that read on in the middle of
+    // the cut, to the end of the source, would keep the answer a matcher
+    // before it gave over the shorter window. Read on first, every matcher
+    // of the cut reads the same window.
     let syntax = StringSyntax::from_document(&document);
     parser.imperative_lex_check_ref(FIXED_CHECK, move |lexer: &mut Lexer<'_>| {
-        read_continued_string(lexer, &syntax)
+        match lexer.window().chars().next() {
+            Some(first) if !syntax.quotes.contains(first) && !is_identifier_start(first) => {
+                hold_text(lexer);
+                LexCheckResult::Continue
+            }
+            _ => read_continued_string(lexer, &syntax),
+        }
     });
 
     // Reject unquoted text that cannot start a valid JSON5 IdentifierName
@@ -1290,14 +1475,24 @@ pub fn json5(parser: &mut Tabnas, options: &Json5Options) -> Result<(), PluginEr
     // matcher leaves the character unclaimed, so the lexer raises
     // `unexpected` there, the same outcome as the TypeScript
     // `{ done: true, token: undefined }`.
-    parser.lex_check_ref(TEXT_CHECK, move |remaining: &str| {
-        let Some(first) = remaining.chars().next() else {
+    //
+    // It reads through the lexer's window as far as its answer needs
+    // ([`hold_text`]): the first character, and the run of a number's
+    // characters at the cursor and the character after it, which holds any
+    // keyword and any value regex match it can meet. The fixed check has
+    // read that far already.
+    parser.imperative_lex_check_ref(TEXT_CHECK, move |lexer: &mut Lexer<'_>| {
+        let Some(first) = lexer.window().chars().next() else {
             return LexCheckResult::Continue;
         };
-        if is_identifier_start(first)
-            || value_names
-                .iter()
-                .any(|name| remaining.starts_with(name.as_str()))
+        if is_identifier_start(first) {
+            return LexCheckResult::Continue;
+        }
+        hold_text(lexer);
+        let remaining = lexer.window();
+        if value_names
+            .iter()
+            .any(|name| remaining.starts_with(name.as_str()))
             || value_regexes.iter().any(|regex| regex.is_match(remaining))
         {
             LexCheckResult::Continue
@@ -1317,13 +1512,16 @@ pub fn json5(parser: &mut Tabnas, options: &Json5Options) -> Result<(), PluginEr
         .as_str()
         .unwrap_or("'\"")
         .to_string();
-    parser.lex_check_ref(STRING_CHECK, move |remaining: &str| {
-        match remaining
+    // The scan reads the string through the lexer's window, to its closing
+    // quote or the end of the source ([`scan_string_at`]).
+    parser.imperative_lex_check_ref(STRING_CHECK, move |lexer: &mut Lexer<'_>| {
+        match lexer
+            .window()
             .chars()
             .next()
             .filter(|quote| quotes.contains(*quote))
         {
-            Some(quote) if scan_string_escapes(remaining, quote).forbidden => LexCheckResult::Skip,
+            Some(quote) if scan_string_at(lexer, quote).0.forbidden => LexCheckResult::Skip,
             _ => LexCheckResult::Continue,
         }
     });
@@ -1415,11 +1613,12 @@ pub fn json5(parser: &mut Tabnas, options: &Json5Options) -> Result<(), PluginEr
         });
     }
 
-    // Record the resolved options on the instance so `parse_with` can
-    // apply the requireValue rule. The TypeScript plugin wraps the
-    // parser's `start` for this; the engine here runs a `parser.start`
-    // hook INSTEAD of the parse rather than before it, so the guard lives
-    // in the package-level entry point, as in Go.
+    // Record the resolved options on the instance so `parse_with` and
+    // `check_reader` can apply the requireValue rule. The TypeScript plugin
+    // wraps the instance's own `parse` and `parseReader` for this; the
+    // engine here runs a `parser.start` hook INSTEAD of the parse rather
+    // than before it, and a method cannot be wrapped on an instance, so
+    // the guard lives in the package-level entry points, as in Go.
     parser.decorate(OPTIONS_MARK, options);
     Ok(())
 }
@@ -1443,9 +1642,18 @@ pub fn plugin() -> Plugin {
     .with_defaults(Json5Options::default().to_value())
 }
 
-/// Build a JSON5 parser with caller options: `jsonic.Make()` followed by
-/// `UseDefaults(Json5, Defaults(), opts)` in Go, or
-/// `new Tabnas().use(jsonic).use(Json5, opts)` in TypeScript.
+/// Build a JSON5 parser with caller options: `Make(opts)` in Go, which is
+/// `jsonic.Make()` followed by `UseDefaults(Json5, Defaults(), opts)`, or
+/// `make(opts)` in TypeScript, which is
+/// `new Tabnas().use(jsonic).use(Json5, opts)`.
+///
+/// It declares `lex.window`, so that [`Tabnas::parse_reader`] (and
+/// [`parse_reader_with`]) reads a reader a window at a time rather than
+/// whole (admin ADR-30): the checks this crate installs read the source
+/// only through the lexer's window, and jsonic's base is the engine's own
+/// matchers. The window is declared here, on the parser this crate makes
+/// whole, and not in [`json5`] or [`plugin`], which a host may install
+/// beneath matchers of its own.
 ///
 /// Infallible by design: the grammar is a fixed literal, so a failure
 /// here is a bug in this crate rather than anything a caller did.
@@ -1461,6 +1669,9 @@ pub fn make_with(options: Json5Options) -> Tabnas {
     parser
         .use_plugin(plugin(), Some(options.to_value()))
         .expect("the json5 grammar is fixed and valid");
+    parser
+        .set_options(|options| options.lex.window = true)
+        .expect("lex.window sets");
     parser
 }
 
@@ -1546,6 +1757,122 @@ pub fn parse_with(parser: &Tabnas, src: &str) -> Result<Value, Json5Error> {
         return parser.parse("");
     }
     parser.parse(src)
+}
+
+/// The reader [`check_reader`] gives back: every byte the reader it read
+/// from gives, the ones it read first, and a read that failed there,
+/// where it failed.
+pub struct Checked<R> {
+    read: std::io::Cursor<Vec<u8>>,
+    failure: Option<std::io::Error>,
+    rest: Option<R>,
+}
+
+impl<R: std::io::Read> std::io::Read for Checked<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.read.read(buf)?;
+        if n > 0 || buf.is_empty() {
+            return Ok(n);
+        }
+        if let Some(failure) = self.failure.take() {
+            return Err(failure);
+        }
+        match &mut self.rest {
+            Some(rest) => rest.read(buf),
+            None => Ok(0),
+        }
+    }
+}
+
+/// Apply the `requireValue` rule [`parse_with`] applies to a source read
+/// from `reader`, reading only as far as the answer needs: the leading
+/// whitespace and comments, and the first character after them. With the
+/// option on (the default), an empty source is `json5_empty` and one of
+/// only whitespace and comments `json5_no_value`, as [`parse_with`] has
+/// them; any other source comes back as a reader that gives every byte
+/// `reader` gives, the ones read here first, for the parse. A read that
+/// fails, or bytes that are not UTF-8, are the parse's to report (the
+/// engine's `unreadable`): the reader gives them as `reader` did. A parser
+/// without the option, or without the plugin, reads `reader` as it is.
+///
+/// A host that parses through a reader source of its own, as dmog does
+/// through transduce's, calls this first in place of reading the document
+/// whole for the rule.
+///
+/// ```
+/// let parser = tabnas_json5::make();
+/// let error = tabnas_json5::check_reader(&parser, &b"  // only a comment"[..]).err();
+/// assert_eq!(error.map(|e| e.code), Some("json5_no_value".to_string()));
+/// let checked = tabnas_json5::check_reader(&parser, &b"[1, 2,]"[..])?;
+/// assert_eq!(parser.parse_reader(checked)?.to_string(), "[1,2]");
+/// # Ok::<(), tabnas_json5::Json5Error>(())
+/// ```
+pub fn check_reader<R: std::io::Read>(
+    parser: &Tabnas,
+    mut reader: R,
+) -> Result<Checked<R>, Json5Error> {
+    let checked = |read: Vec<u8>, failure, rest| Checked {
+        read: std::io::Cursor::new(read),
+        failure,
+        rest,
+    };
+    let require_value = parser
+        .decoration::<Json5Options>(OPTIONS_MARK)
+        .is_some_and(|options| options.require_value);
+    if !require_value {
+        return Ok(checked(Vec::new(), None, Some(reader)));
+    }
+    let mut read = Vec::new();
+    let mut scan = ValueScan::default();
+    let mut buf = [0u8; 512];
+    loop {
+        let n = match reader.read(&mut buf) {
+            Ok(n) => n,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Ok(checked(read, Some(error), None)),
+        };
+        read.extend_from_slice(&buf[..n]);
+        let end = n == 0;
+        match scan.scan(&read, end, false) {
+            Verdict::More => {}
+            Verdict::Value => return Ok(checked(read, None, (!end).then_some(reader))),
+            Verdict::NoValue => {
+                let Ok(text) = std::str::from_utf8(&read) else {
+                    return Ok(checked(read, None, None));
+                };
+                let code = if text.is_empty() {
+                    "json5_empty"
+                } else {
+                    "json5_no_value"
+                };
+                return Err(value_error(parser, code, text));
+            }
+        }
+    }
+}
+
+/// Parse a JSON5 source read from `reader` with a parser that carries the
+/// plugin: the counterpart of [`parse_with`] for a reader, and of the Go
+/// `ParseReader(j, r)` and the TypeScript plugin's `tn.parseReader`. The
+/// `requireValue` rule reads `reader` only as far as its answer needs
+/// ([`check_reader`]), and the parser then reads the rest through
+/// [`Tabnas::parse_reader`]: a window at a time where it declares
+/// `lex.window`, as [`make`]'s does, so a long document is never held
+/// whole. It gives the value and the errors [`parse_with`] gives of the
+/// same text, but for an error's excerpt of a very long line
+/// (tabnas/parser `DIVERGENCE.md`).
+///
+/// ```
+/// let parser = tabnas_json5::make();
+/// let value = tabnas_json5::parse_reader_with(&parser, &b"{ a: 0x1F, b: [2,], }"[..])?;
+/// assert_eq!(value.to_string(), r#"{"a":31,"b":[2]}"#);
+/// let error = tabnas_json5::parse_reader_with(&parser, &b""[..]).unwrap_err();
+/// assert_eq!(error.code, "json5_empty");
+/// # Ok::<(), tabnas_json5::Json5Error>(())
+/// ```
+pub fn parse_reader_with(parser: &Tabnas, reader: impl std::io::Read) -> Result<Value, Json5Error> {
+    let checked = check_reader(parser, reader)?;
+    parser.parse_reader(checked)
 }
 
 /// Parse a JSON5 source string with the shared default parser.

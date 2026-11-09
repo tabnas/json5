@@ -237,7 +237,7 @@ fn official_suite() {
 
         // The package-level `parse_with` applies the requireValue rule,
         // the exact counterpart of the Go `Parse(j, src)` and of the
-        // wrapped `parser.start` the TypeScript suite exercises. Calling
+        // guarded `parse` the TypeScript suite exercises. Calling
         // `parser.parse` directly would test a DIFFERENT entry point.
         match (should_parse, parse_with(&suite.parser, &data)) {
             (false, Ok(value)) => {

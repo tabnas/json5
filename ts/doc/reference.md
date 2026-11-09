@@ -17,16 +17,17 @@ the same engine first. Both are declared as peer dependencies.
 
 ## Exports
 
-The module exports exactly three names:
+The module exports these names:
 
 | Export | Kind | Description |
 |---|---|---|
 | `Json5` | `Plugin` | The plugin function. Pass it to `engine.use()`. Carries `Json5.defaults` (the default option values). |
+| `make` | `function` | Builds a parser with `Json5` installed. See [`make`](#makeoptions). |
 | `VERSION` | `string` | This package's semantic version. Always equal to `package.json` "version"; the version test fails the build if they drift. Mirrored by `VERSION` in the Go port. |
 | `Json5Options` | type | The TypeScript type of the options object (see [Options](#options)). |
 
 ```ts
-import { Json5, VERSION } from '@tabnas/json5'
+import { Json5, make, VERSION } from '@tabnas/json5'
 import type { Json5Options } from '@tabnas/json5'
 ```
 
@@ -73,6 +74,21 @@ arrays → arrays, strings → `string`, numbers → `number` (including
 `null`, the empty result this grammar declares, and that holds for every
 such source: empty, whitespace-only, comments-only, and (with
 `hashComment` on) hash-comment-only.
+
+### `make(options?)`
+
+Builds a parser with `Json5` installed on the jsonic base under
+`options`, as `new Tabnas().use(jsonic).use(Json5, options)` builds it,
+and declares `lex.window` on it, so that `parseReader` reads a reader a
+window at a time.
+
+### `instance.parseReader(reader, meta?)`
+
+Parses the source that `reader` gives, as `parse` parses a string. A
+reader is an object whose `read(buf)` fills the `Uint8Array` `buf` and
+returns the number of bytes it wrote, and 0 at the end. The
+`requireValue` rule reads only the leading whitespace and comments
+before the parse reads the rest.
 
 ### `Json5.defaults`
 
