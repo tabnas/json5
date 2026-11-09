@@ -250,7 +250,7 @@ Errors in Go are returned (never thrown/panicked); inspect them with
 `errors.As(err, &je)` where `je` is `*tabnasjsonic.JsonicError`.
 
 Empty input under the default `requireValue: true` deserves a note. The
-TS plugin wraps `parser.start` so `parse('')` throws with code
+TS plugin wraps the instance's `parse` so `parse('')` throws with code
 `json5_empty`. The Go engine handles an empty source before any
 pluggable hook runs (a custom `Options.Parser.Start` is only invoked
 for non-empty input), so the guard cannot be installed on `j.Parse`

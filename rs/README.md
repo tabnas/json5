@@ -116,10 +116,11 @@ API and a few points where the engine has no way to say what the
 TypeScript engine says:
 
 - **The entry point is `parse_with`, as in Go.** TypeScript wraps the
-  `start` method on the parser to apply the `requireValue` rule. The
+  `parse` method on the instance to apply the `requireValue` rule. The
   Rust engine runs a `parser.start` hook instead of the parse rather
   than before it, so the rule lives in the package-level `parse_with`
-  (and `parse`), the counterpart of the Go `Parse(j, src)`. A direct
+  (and `parse`, and `parse_reader_with` for a reader), the counterpart
+  of the Go `Parse(j, src)`. A direct
   `Tabnas::parse` on the instance parses the same JSON5, string line
   continuations included, but reports an empty source with the engine's
   generic code.

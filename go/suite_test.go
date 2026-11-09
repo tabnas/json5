@@ -253,8 +253,8 @@ func TestOfficialSuite(t *testing.T) {
 
 			// Parse is the package-level wrapper that applies the
 			// requireValue rule — the exact counterpart of the TS plugin's
-			// wrapped parser.start, which is what ts/test/suite.test.ts
-			// exercises via j.parse. Calling j.Parse directly here would
+			// guarded j.parse, which is what ts/test/suite.test.ts
+			// exercises. Calling j.Parse directly here would
 			// test a DIFFERENT entry point from the TypeScript suite.
 			got, perr := Parse(j, string(data))
 
