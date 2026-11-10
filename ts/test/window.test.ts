@@ -333,6 +333,10 @@ describe('window', () => {
       '["\\\n' + 'é'.repeat(long / 2) + '\\x4F\\uD83D\\\u2028\\uDE00", 1]',
       '["' + 'q'.repeat(long) + '\\"", 1]',
       '[1' + '0'.repeat(long) + '.e3, 1]',
+      // A run of digits that no number completes, which the engine's
+      // number pattern reads in linear time from parser 0.12.18
+      // (tabnas/parser#327).
+      '[1' + '0'.repeat(long) + '.e]',
       '[0X' + 'f'.repeat(long) + ', 1]',
       '[{' + 'k'.repeat(long) + ': 1}, 1]',
       '[1, // ' + 'c'.repeat(long) + '\n2]',

@@ -478,25 +478,18 @@ const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
   // way and at the same place: `unexpected`, on the quote. Anywhere else
   // fixedCheck makes no token, and every other string is the engine's.
   //
-  // In a parse from a reader it also reads the window on, first, as far
-  // as any check of this grammar reads at this token: a string to its
-  // closing quote (the scan, as the string check reads it), and where the
-  // text check may judge the token, what it reads (holdText). The engine
-  // cuts a token again over a wider window when a matcher's read reached
-  // the window's end, unless the source has ended; a check that read on in
-  // the middle of the cut, to the end of the source, would keep the answer
-  // a matcher before it gave over the shorter window. Read on first, every
-  // matcher of the cut reads the same window.
+  // In a parse from a reader the scan reads the string through the window
+  // to its closing quote, as the string check reads it. A check that reads
+  // the window on need not read ahead of the matchers before it: where one
+  // of them read to the window's end, the engine cuts the token again over
+  // the window the fill left, even when the fill reached the source's end
+  // (tabnas/parser#326, from parser 0.12.17).
   const fixedCheck = (lex: Lex) => {
     const pnt: any = (lex as any).pnt
     const scfg: any = (lex as any).cfg?.string
     if (!pnt || !held(lex, pnt.sI, pnt.sI)) return undefined
     const src: string = (lex as any).src
-    if (!scfg?.quoteMap?.[src[pnt.sI]]) {
-      const r = String.fromCodePoint(src.codePointAt(pnt.sI) as number)
-      if (!isIdentifierStart(r)) holdText(lex)
-      return undefined
-    }
+    if (!scfg?.quoteMap?.[src[pnt.sI]]) return undefined
     const found = scanString(lex, scfg.escChar || '\\')
     if (!(found & CONTINUED)) return undefined
     if (found & FORBIDDEN) {
@@ -514,7 +507,7 @@ const Json5: Plugin = (tn: Tabnas, options: Json5Options) => {
   // It reads through the window as far as its answer needs (holdText): the
   // first character, and the run of a number's characters at the point and
   // the character after it, which holds any keyword and any value regex
-  // match it can meet. fixedCheck has read that far already.
+  // match it can meet.
   const textCheck = (lex: Lex) => {
     const pnt: any = (lex as any).pnt
     if (!pnt || !held(lex, pnt.sI, pnt.sI)) return undefined

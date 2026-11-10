@@ -119,24 +119,6 @@ fn plain(parser: &Tabnas, bytes: &[u8], size: usize, sizes: Option<WindowSizes>)
     })
 }
 
-/// A defect of the engine's that keeps a source from parsing the same from
-/// a reader, under a window, with its issue: tabnas/parser#322, the Rust
-/// engine's `fill_window` indexing one past the characters it holds when
-/// the window drops all it holds and holds a character past ASCII, which a
-/// source of only whitespace past ASCII meets when the rules take it whole,
-/// under a block no longer than it (`requireValue` off; on, the rule
-/// refuses it first). Such a parse is held to fail as the defect fails, so
-/// that the entry fails once the engine is repaired, and is then deleted.
-fn engine_defect(text: &str, window: Option<WindowSizes>) -> Option<&'static str> {
-    let block = window.map_or(64 * 1024, |sizes| sizes.block);
-    let space = |c: char| c == '\u{feff}' || c.is_whitespace();
-    (!text.is_empty()
-        && text.chars().all(space)
-        && !text.is_ascii()
-        && text.chars().count() >= block)
-        .then_some("tabnas/parser#322")
-}
-
 /// Parse `text` whole and from a reader in pieces of each size, under
 /// each window, both ways, and add where they differ to `failures`.
 /// Answers the number of reader parses compared.
@@ -152,22 +134,6 @@ fn same_from_reader(
     let mut compared = 0;
     for &size in sizes {
         for window in windows(size) {
-            // Where the rule refuses the source, the engine never reads it.
-            let reaches_the_engine = whole.starts_with("ok ") && whole_plain.starts_with("ok ");
-            if let Some(issue) = engine_defect(text, window).filter(|_| reaches_the_engine) {
-                for read in [
-                    guarded(parser, text.as_bytes(), size, window),
-                    plain(parser, text.as_bytes(), size, window),
-                ] {
-                    if !read.starts_with("err internal ") {
-                        failures.push(format!(
-                            "{at}, pieces of {size}, {window:?}: {issue} no longer fails ({read}): delete its entry"
-                        ));
-                    }
-                }
-                compared += 2;
-                continue;
-            }
             let read = guarded(parser, text.as_bytes(), size, window);
             if read != whole {
                 failures.push(format!(

@@ -178,17 +178,6 @@ func sameFromReader(t *testing.T, j *tabnas.Tabnas, at, text string, sizes []int
 	return 2 * len(sizes)
 }
 
-// readerSizes are the pieces a document is handed over in: down to a byte
-// for a short one, and from 64 bytes for one over 8 KiB, whose every
-// one-byte read the Go window answers with a copy of itself
-// (tabnas/parser#321).
-func readerSizes(text string) []int {
-	if len(text) > 8<<10 {
-		return []int{64, 4096, readerMargin + 3}
-	}
-	return []int{1, 3, 64, 4096}
-}
-
 // fixtureRows calls each with every row of the shared fixtures: where it
 // is, its input and its plugin options.
 func fixtureRows(t *testing.T, each func(at, input string, opts map[string]any)) {
@@ -289,7 +278,7 @@ func keysOf(m map[string]any) map[string]bool {
 func TestFixturesFromAReader(t *testing.T) {
 	compared := 0
 	fixtureRows(t, func(at, input string, opts map[string]any) {
-		compared += sameFromReader(t, Make(opts), at, input, readerSizes(input))
+		compared += sameFromReader(t, Make(opts), at, input, []int{1, 3, 64, 4096})
 	})
 	t.Logf("reader fixtures: %d reader parses (100%%)", compared)
 	if compared < 1800 {
