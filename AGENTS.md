@@ -620,17 +620,20 @@ on, so that it answers what the whole text gives:
   `the_value_definitions_read_a_numbers_characters`): a definition that
   could match another character must widen the class first.
 
-**The fixed check reads on first.** The engine cuts a token again over a
-wider window when a matcher's read reached the window's end, unless the
-source has ended. A check that read on in the middle of a cut, to the end
-of the source, kept the answer a matcher before it gave over the shorter
-window: under a window of one character, the comment matcher saw only
-the `/` of `/* x`, and the text check, reading on to the end, made the
-cut stand as `unexpected` where the whole text gives
-`unterminated_comment`. The fixed check runs before every other matcher
-at every token, so it reads on as far as any check of this grammar will
-read there (`holdText` / `hold_text`, and the string scan), and every
-matcher of the cut reads the same window.
+**No check reads ahead of the matchers.** A check reads the window on
+only as far as its own answer needs. Where a matcher before it read to
+the window's end, the engine cuts the token again over the window the
+check's fill left, even when that fill reached the end of the source
+(tabnas/parser#326, from parser 0.12.17). Under a window of one
+character, the comment matcher sees only the `/` of `/* x`, and the text
+check reads on to the end; the token is then cut again, the comment
+matcher reads `/* x` whole, and the parse fails `unterminated_comment`,
+as the whole text does. Until that release the engine let such a cut
+stand, so the fixed check, which runs before every other matcher, read on
+first as far as any check of this grammar would read at that token. On
+parser 0.12.16, without that read, TypeScript's window test fails: `-42`,
+read a byte at a time under a margin and a block of one character, reads
+`unexpected` at the `-`.
 
 **The requireValue rule reads a reader only as far as it must**: the
 leading whitespace and comments and the first character after them,
@@ -662,11 +665,7 @@ reads ahead of the check), tokens longer than the window and long
 documents parse the same. Each fill is mutation-checked: with it taken
 out a test goes red, but where the engine already covers the read (in
 Go, the 64 KiB margin and the number matcher; in TypeScript, `lex.bad`,
-which notes a span the window cuts). Rust's reader test registers one
-engine defect, tabnas/parser#322 (the window's `fill_window` indexing one
-past the characters it holds when it drops all of them and holds one
-past ASCII, which a source of only such whitespace meets), held to still
-fail so that the entry is deleted once the engine is repaired.
+which notes a span the window cuts).
 
 ## Build & test
 

@@ -15,7 +15,7 @@ and this file only covers what is specific to this crate.
 | `tests/text_ender_test.rs` | the P1/P2 pin: a quote does not end a text run |
 | `tests/json5_test.rs` | in-language behaviour: the `go/json5_test.go` cases, the API, threads |
 | `tests/untrusted_test.rs` | playbook section 7: deep nesting, very long input, unterminated constructs, control characters, wide containers |
-| `tests/reader_test.rs` | a parse from a reader, a window at a time: every fixture row, corpus document and derived probe, strings the window's edge cuts at every place, the values the text check judges, long documents; `make` declares the window; `check_reader` reads only the leading trivia; the one engine defect it registers, tabnas/parser#322 (see `../AGENTS.md`, "A document read from a reader, a window at a time") |
+| `tests/reader_test.rs` | a parse from a reader, a window at a time: every fixture row, corpus document and derived probe, strings the window's edge cuts at every place, the values the text check judges, long documents; `make` declares the window; `check_reader` reads only the leading trivia (see `../AGENTS.md`, "A document read from a reader, a window at a time") |
 | `tests/perf_test.rs` | reuse of one instance must beat rebuilding per parse, and cost must grow about linearly with input size |
 | `tests/version_test.rs` | Cargo.toml == `VERSION` == ts/package.json |
 | `tests/translate_test.rs` | the translation parts: the embedded manifest is `../tabnas.plugin.json`, the render it names is the one `render_text()` embeds, the embed it names is the one `translate()` carries (none, for JSON5), the manifest's shapes, root and loss lines, and every render definition named `json5-...` |
@@ -124,10 +124,11 @@ document is installed, because the document is what looks them up:
 All three are `imperative_lex_check_ref`s, which take the lexer: a
 `lex_check_ref` takes the text to the window's end and cannot read the
 window on. They read through `Lexer::window` and `Lexer::fill`
-(`scan_string_at`, `hold_text`, `read_on`), and the fixed check, which
-runs first at every token, reads on as far as either of the others will,
-so that every matcher of the cut reads the same window; `../AGENTS.md`,
-"A document read from a reader, a window at a time", has why.
+(`scan_string_at`, `hold_text`, `read_on`), each only as far as its own
+answer needs: where a matcher before a check read to the window's end,
+the engine cuts the token again over the window the check's fill left
+(tabnas/parser#326, from tabnas-parser 0.12.17); `../AGENTS.md`, "A
+document read from a reader, a window at a time", has more.
 - `@parse-trailing-dec-exp` and `@parse-uppercase-hex` are
   `value_transform_ref`s. Note the Rust number lexer already accepts
   `0X` and `5.e4`, so the regex definitions mostly pin agreement --

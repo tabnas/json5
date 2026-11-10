@@ -755,15 +755,12 @@ func Json5(j *tabnas.Tabnas, opts map[string]any) error {
 	// and at the same place: unexpected, on the quote. Anywhere else
 	// fixedCheck makes no token, and every other string is the engine's.
 	//
-	// In a parse from a reader it also reads the window on, first, as far
-	// as any check of this grammar reads at this token: a string to its
-	// closing quote (the scan), and where the text check may judge the
-	// token, what it reads (holdText). The engine cuts a token again over a
-	// wider window when a matcher's read reached the window's end, unless
-	// the source has ended; a check that read on in the middle of the cut,
-	// to the end of the source, would keep the answer a matcher before it
-	// gave over the shorter window. Read on first, every matcher of the cut
-	// reads the same window.
+	// In a parse from a reader the scan reads the string through the window
+	// to its closing quote, as the string check reads it. A check that reads
+	// the window on need not read ahead of the matchers before it: where one
+	// of them read to the window's end, the engine cuts the token again over
+	// the window the fill left, even when the fill reached the source's end
+	// (tabnas/parser#326, from parser v0.12.17).
 	fixedCheck := func(lex *tabnas.Lex) *tabnas.LexCheckResult {
 		p := lex.Cursor()
 		cfg := lex.Config
@@ -772,10 +769,6 @@ func Json5(j *tabnas.Tabnas, opts map[string]any) error {
 		}
 		quote, qsize := utf8.DecodeRuneInString(lex.Src[p.SI:])
 		if !cfg.StringChars[quote] {
-			// What the text check reads at this token, read now: see below.
-			if !isJS5IdentifierStart(quote) {
-				holdText(lex)
-			}
 			return nil
 		}
 		esc := cfg.EscapeChar
@@ -805,7 +798,7 @@ func Json5(j *tabnas.Tabnas, opts map[string]any) error {
 	// the first character, and the run of a number's characters at the
 	// cursor (ASCII letters and digits, `+`, `-` and `.`) and the character
 	// after it, which holds any keyword and any value regex match it can
-	// meet. fixedCheck has read that far already.
+	// meet.
 	textCheck := func(lex *tabnas.Lex) *tabnas.LexCheckResult {
 		p := lex.Cursor()
 		if p == nil {
